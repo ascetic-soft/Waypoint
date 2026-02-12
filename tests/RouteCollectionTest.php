@@ -130,4 +130,44 @@ final class RouteCollectionTest extends TestCase
 
         $collection->match('GET', '/anything');
     }
+
+    // ── Fallback (non-trie-compatible) routes ────────────────────
+
+    #[Test]
+    public function matchFallbackRouteWithNonTrieCompatiblePattern(): void
+    {
+        $collection = new RouteCollection();
+        // Mixed static + parameter in one segment — NOT trie-compatible.
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']));
+
+        $result = $collection->match('GET', '/files/prefix-hello.txt');
+
+        self::assertSame(['name' => 'hello'], $result->parameters);
+    }
+
+    #[Test]
+    public function throwsMethodNotAllowedForFallbackRoute(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']));
+
+        try {
+            $collection->match('POST', '/files/prefix-hello.txt');
+            self::fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            self::assertContains('GET', $e->getAllowedMethods());
+        }
+    }
+
+    #[Test]
+    public function fallbackRouteNotFoundThrows404(): void
+    {
+        $collection = new RouteCollection();
+        // Only a non-trie-compatible route, nothing matches
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']));
+
+        $this->expectException(RouteNotFoundException::class);
+
+        $collection->match('GET', '/something/else');
+    }
 }

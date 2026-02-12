@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AsceticSoft\Waypoint\Tests\Fixture;
 
 use Psr\Container\ContainerInterface;
+use Psr\Container\NotFoundExceptionInterface;
 
 /**
  * Minimal PSR-11 container for testing — instantiates classes on-the-fly.
@@ -29,7 +30,7 @@ final class SimpleContainer implements ContainerInterface
             return new $id();
         }
 
-        throw new class ("Service \"$id\" not found.") extends \RuntimeException implements \Psr\Container\NotFoundExceptionInterface {};
+        throw new class ("Service \"$id\" not found.") extends \RuntimeException implements NotFoundExceptionInterface {};
     }
 
     public function has(string $id): bool

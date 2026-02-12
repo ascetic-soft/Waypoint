@@ -7,12 +7,11 @@ namespace AsceticSoft\Waypoint\Tests\Fixture;
 use AsceticSoft\Waypoint\Attribute\Route;
 use Nyholm\Psr7\Response;
 use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * Controller with class-level #[Route] for prefix and middleware testing.
  */
-#[Route('/api/users', middleware: ['AsceticSoft\Waypoint\Tests\Fixture\DummyMiddleware'])]
+#[Route('/api/users', middleware: [DummyMiddleware::class])]
 class GroupedController
 {
     #[Route('/', methods: ['GET'], name: 'users.list')]

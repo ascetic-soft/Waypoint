@@ -9,6 +9,7 @@ use AsceticSoft\Waypoint\Tests\Fixture\GroupedController;
 use AsceticSoft\Waypoint\Tests\Fixture\TestController;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use AsceticSoft\Waypoint\Tests\Fixture\DummyMiddleware;
 
 final class AttributeRouteLoaderTest extends TestCase
 {
@@ -53,7 +54,7 @@ final class AttributeRouteLoaderTest extends TestCase
 
         foreach ($routes as $route) {
             self::assertContains(
-                'AsceticSoft\Waypoint\Tests\Fixture\DummyMiddleware',
+                DummyMiddleware::class,
                 $route->getMiddleware(),
             );
         }
@@ -96,6 +97,6 @@ final class AttributeRouteLoaderTest extends TestCase
         );
 
         // Should find routes from TestController and GroupedController
-        self::assertGreaterThanOrEqual(8, count($routes));
+        self::assertGreaterThanOrEqual(8, \count($routes));
     }
 }

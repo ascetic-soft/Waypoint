@@ -261,6 +261,24 @@ final class RouterTest extends TestCase
         }
     }
 
+    // ── Directory scanning ───────────────────────────────────────
+
+    #[Test]
+    public function scanDirectoryLoadsRoutes(): void
+    {
+        $this->container->set(TestController::class, new TestController());
+        $this->container->set(GroupedController::class, new GroupedController());
+
+        $this->router->scanDirectory(
+            __DIR__ . '/Fixture',
+            'AsceticSoft\\Waypoint\\Tests\\Fixture',
+        );
+
+        $response = $this->router->handle(new ServerRequest('GET', '/'));
+
+        self::assertSame('index', (string) $response->getBody());
+    }
+
     // ── Access to internals ──────────────────────────────────────
 
     #[Test]

@@ -51,8 +51,8 @@ final class RouteTest extends TestCase
         /** @var \Attribute $attr */
         $attr = $attributes[0]->newInstance();
 
-        self::assertTrue(($attr->flags & \Attribute::TARGET_CLASS) !== 0);
-        self::assertTrue(($attr->flags & \Attribute::TARGET_METHOD) !== 0);
-        self::assertTrue(($attr->flags & \Attribute::IS_REPEATABLE) !== 0);
+        self::assertNotSame(0, ($attr->flags & \Attribute::TARGET_CLASS));
+        self::assertNotSame(0, ($attr->flags & \Attribute::TARGET_METHOD));
+        self::assertNotSame(0, ($attr->flags & \Attribute::IS_REPEATABLE));
     }
 }

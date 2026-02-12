@@ -162,4 +162,107 @@ final class RouteDiagnosticsTest extends TestCase
 
         self::assertStringContainsString('No issues found', $content);
     }
+
+    #[Test]
+    public function printReportShowsDuplicatePathsWarning(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users', ['GET'], ['App\\A\\Ctrl', 'list'], name: 'a'));
+        $collection->add(new Route('/users', ['GET'], ['App\\B\\Ctrl', 'list'], name: 'b'));
+
+        $diagnostics = new RouteDiagnostics($collection);
+
+        $output = fopen('php://memory', 'r+');
+        $diagnostics->printReport($output);
+
+        rewind($output);
+        $content = stream_get_contents($output);
+        fclose($output);
+
+        self::assertStringContainsString('[WARNING] Duplicate paths', $content);
+        self::assertStringContainsString('Ctrl::list', $content);
+    }
+
+    #[Test]
+    public function printReportShowsShadowedRoutesWarning(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/{name}', ['GET'], ['C', 'byName'], priority: 10));
+        $collection->add(new Route('/users/{id:\d+}', ['GET'], ['C', 'byId'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+
+        $output = fopen('php://memory', 'r+');
+        $diagnostics->printReport($output);
+
+        rewind($output);
+        $content = stream_get_contents($output);
+        fclose($output);
+
+        self::assertStringContainsString('[WARNING] Shadowed routes', $content);
+        self::assertStringContainsString('shadowed by', $content);
+    }
+
+    #[Test]
+    public function listRoutesFormatsClosureHandler(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route(
+            '/test',
+            ['GET'],
+            static fn () => null,
+        ));
+
+        $diagnostics = new RouteDiagnostics($collection);
+
+        $output = fopen('php://memory', 'r+');
+        $diagnostics->listRoutes($output);
+
+        rewind($output);
+        $content = stream_get_contents($output);
+        fclose($output);
+
+        self::assertStringContainsString('Closure', $content);
+    }
+
+    #[Test]
+    public function findConflictsDetectsParamShadowingStaticSegment(): void
+    {
+        $collection = new RouteCollection();
+        // Blocker has {name} where shadowed has static "admin"
+        $collection->add(new Route('/users/{name}', ['GET'], ['C', 'byName'], priority: 10));
+        $collection->add(new Route('/users/admin', ['GET'], ['C', 'admin'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertNotEmpty($report->shadowedRoutes);
+    }
+
+    #[Test]
+    public function noShadowWhenBlockerIsConstrained(): void
+    {
+        $collection = new RouteCollection();
+        // Blocker is constrained (narrower), shadowed is unconstrained (wider)
+        $collection->add(new Route('/users/{id:\d+}', ['GET'], ['C', 'byId'], priority: 10));
+        $collection->add(new Route('/users/{name}', ['GET'], ['C', 'byName'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertEmpty($report->shadowedRoutes);
+    }
+
+    #[Test]
+    public function noShadowWhenDifferentSegmentCounts(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/{name}', ['GET'], ['C', 'a'], priority: 10));
+        $collection->add(new Route('/users/{id:\d+}/posts', ['GET'], ['C', 'b'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertEmpty($report->shadowedRoutes);
+    }
 }
