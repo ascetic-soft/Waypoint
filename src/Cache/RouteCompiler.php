@@ -36,10 +36,10 @@ final class RouteCompiler
             }
         }
 
-        $content = '<?php return ' . var_export($data, true) . ";\n";
+        $content = sprintf("<?php return %s;\n", var_export($data, true));
 
         // Atomic write: write to temp file then rename
-        $tmpFile = $cacheFilePath . '.' . uniqid('', true) . '.tmp';
+        $tmpFile = sprintf('%s.%s.tmp', $cacheFilePath, uniqid('', true));
         file_put_contents($tmpFile, $content, LOCK_EX);
         rename($tmpFile, $cacheFilePath);
 

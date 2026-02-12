@@ -176,7 +176,7 @@ final readonly class RouteDiagnostics
         // Show short class name
         $parts = explode('\\', $class);
 
-        return end($parts) . '::' . $handler[1];
+        return sprintf('%s::%s', end($parts), $handler[1]);
     }
 
     private function formatMiddleware(Route $route): string

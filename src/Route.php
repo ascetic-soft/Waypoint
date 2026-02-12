@@ -66,12 +66,12 @@ final class Route
 
                 $constraint = ($matches[2] ?? '') !== '' ? $matches[2] : '[^/]+';
 
-                return '(?P<' . $matches[1] . '>' . $constraint . ')';
+                return sprintf('(?P<%s>%s)', $matches[1], $constraint);
             },
             $this->pattern,
         );
 
-        $this->compiledRegex = '#^' . $regex . '$#';
+        $this->compiledRegex = sprintf('#^%s$#', $regex);
         $this->compiled = true;
 
         return $this;

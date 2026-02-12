@@ -10,6 +10,10 @@ use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
 /**
  * Stores routes and provides URI + HTTP-method matching.
  *
+ * Internally uses a prefix-tree ({@see RouteTrie}) for fast segment-by-segment
+ * lookups.  Routes whose patterns cannot be expressed in the trie (e.g. cross-
+ * segment parameters) fall back to linear regex matching.
+ *
  * Routes are matched in priority order (descending), then in registration order.
  * If the URI matches at least one route but none of the matched routes allows
  * the requested HTTP method, {@see MethodNotAllowedException} is thrown.
@@ -22,6 +26,15 @@ final class RouteCollection
     /** Whether the routes have been sorted by priority. */
     private bool $sorted = false;
 
+    /** Prefix-tree root for trie-compatible routes (built lazily). */
+    private ?RouteTrie $trie = null;
+
+    /** @var list<Route> Routes that cannot be represented in the trie. */
+    private array $fallbackRoutes = [];
+
+    /** Whether the trie has been built from the current route set. */
+    private bool $trieBuilt = false;
+
     /**
      * Add a route to the collection.
      */
@@ -29,6 +42,7 @@ final class RouteCollection
     {
         $this->routes[] = $route;
         $this->sorted = false;
+        $this->trieBuilt = false;
     }
 
     /**
@@ -39,24 +53,37 @@ final class RouteCollection
      */
     public function match(string $method, string $uri): RouteMatchResult
     {
-        $this->sort();
+        $this->buildTrie();
+
+        if ($this->trie === null) {
+            throw new \LogicException('RouteTrie was not initialized after buildTrie().');
+        }
 
         $method = strtoupper($method);
         $allowedMethods = [];
 
-        foreach ($this->routes as $route) {
+        // 1. Try the prefix-tree (covers the majority of routes).
+        $segments = RouteTrie::splitUri($uri);
+        $result = $this->trie->match($method, $segments, 0, [], $allowedMethods);
+
+        if ($result !== null) {
+            return new RouteMatchResult($result['route'], $result['params']);
+        }
+
+        // 2. Fallback: linear scan for non-trie-compatible routes.
+        foreach ($this->fallbackRoutes as $route) {
             $params = $route->match($uri);
 
             if ($params === null) {
                 continue;
             }
 
-            // URI matched — check HTTP method
+            // URI matched — check HTTP method.
             if ($route->allowsMethod($method)) {
                 return new RouteMatchResult($route, $params);
             }
 
-            // Collect allowed methods for 405 response
+            // Collect allowed methods for 405 response.
             foreach ($route->getMethods() as $m) {
                 $allowedMethods[$m] = true;
             }
@@ -81,6 +108,38 @@ final class RouteCollection
         $this->sort();
 
         return $this->routes;
+    }
+
+    // ── Internals ────────────────────────────────────────────────
+
+    /**
+     * Build the prefix-tree from the current (sorted) route set.
+     *
+     * Each route is either inserted into the trie or placed in the fallback
+     * list for linear matching.  The trie is invalidated whenever a new route
+     * is added via {@see add()}.
+     */
+    private function buildTrie(): void
+    {
+        if ($this->trieBuilt) {
+            return;
+        }
+
+        $this->sort();
+
+        $this->trie = new RouteTrie();
+        $this->fallbackRoutes = [];
+
+        foreach ($this->routes as $route) {
+            if (RouteTrie::isCompatible($route->getPattern())) {
+                $segments = RouteTrie::parsePattern($route->getPattern());
+                $this->trie->insert($route, $segments);
+            } else {
+                $this->fallbackRoutes[] = $route;
+            }
+        }
+
+        $this->trieBuilt = true;
     }
 
     /**
