@@ -14,7 +14,8 @@ final readonly class RouteDiagnostics
 {
     public function __construct(
         private RouteCollection $routes,
-    ) {}
+    ) {
+    }
 
     /**
      * Print a human-readable table of all registered routes.
@@ -243,7 +244,7 @@ final readonly class RouteDiagnostics
             }
         }
 
-        return array_filter($byName, static fn(array $group): bool => \count($group) > 1);
+        return array_filter($byName, static fn (array $group): bool => \count($group) > 1);
     }
 
     /**

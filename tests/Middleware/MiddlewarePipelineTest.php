@@ -88,7 +88,9 @@ final class MiddlewarePipelineTest extends TestCase
     private function createFallbackHandler(ResponseInterface $response): RequestHandlerInterface
     {
         return new class ($response) implements RequestHandlerInterface {
-            public function __construct(private readonly ResponseInterface $response) {}
+            public function __construct(private readonly ResponseInterface $response)
+            {
+            }
 
             public function handle(ServerRequestInterface $request): ResponseInterface
             {

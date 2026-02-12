@@ -35,7 +35,7 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualGetRoute(): void
     {
-        $this->router->get('/hello', static fn(): ResponseInterface => new Response(200, [], 'hello'));
+        $this->router->get('/hello', static fn (): ResponseInterface => new Response(200, [], 'hello'));
 
         $response = $this->router->handle(new ServerRequest('GET', '/hello'));
 
@@ -46,7 +46,7 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualPostRoute(): void
     {
-        $this->router->post('/items', static fn(): ResponseInterface => new Response(201, [], 'created'));
+        $this->router->post('/items', static fn (): ResponseInterface => new Response(201, [], 'created'));
 
         $response = $this->router->handle(new ServerRequest('POST', '/items'));
 
@@ -56,7 +56,7 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualPutRoute(): void
     {
-        $this->router->put('/items/{id:\d+}', static fn(int $id): ResponseInterface => new Response(200, [], "updated:$id"));
+        $this->router->put('/items/{id:\d+}', static fn (int $id): ResponseInterface => new Response(200, [], "updated:$id"));
 
         $response = $this->router->handle(new ServerRequest('PUT', '/items/5'));
 
@@ -66,7 +66,7 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualDeleteRoute(): void
     {
-        $this->router->delete('/items/{id:\d+}', static fn(int $id): ResponseInterface => new Response(200, [], "deleted:$id"));
+        $this->router->delete('/items/{id:\d+}', static fn (int $id): ResponseInterface => new Response(200, [], "deleted:$id"));
 
         $response = $this->router->handle(new ServerRequest('DELETE', '/items/3'));
 
@@ -92,7 +92,7 @@ final class RouterTest extends TestCase
     {
         $this->router->get(
             '/users/{id:\d+}',
-            static fn(int $id): ResponseInterface => new Response(200, [], "id=$id"),
+            static fn (int $id): ResponseInterface => new Response(200, [], "id=$id"),
         );
 
         $response = $this->router->handle(new ServerRequest('GET', '/users/99'));
@@ -105,7 +105,7 @@ final class RouterTest extends TestCase
     {
         $this->router->post(
             '/echo',
-            static fn(ServerRequestInterface $request): ResponseInterface => new Response(
+            static fn (ServerRequestInterface $request): ResponseInterface => new Response(
                 200,
                 [],
                 $request->getMethod(),
@@ -123,7 +123,7 @@ final class RouterTest extends TestCase
     public function groupAppliesPrefix(): void
     {
         $this->router->group('/api', function (Router $r): void {
-            $r->get('/users', static fn(): ResponseInterface => new Response(200, [], 'api-users'));
+            $r->get('/users', static fn (): ResponseInterface => new Response(200, [], 'api-users'));
         });
 
         $response = $this->router->handle(new ServerRequest('GET', '/api/users'));
@@ -136,7 +136,7 @@ final class RouterTest extends TestCase
     {
         $this->router->group('/api', function (Router $r): void {
             $r->group('/v1', function (Router $r): void {
-                $r->get('/users', static fn(): ResponseInterface => new Response(200, [], 'v1-users'));
+                $r->get('/users', static fn (): ResponseInterface => new Response(200, [], 'v1-users'));
             });
         });
 
@@ -149,7 +149,7 @@ final class RouterTest extends TestCase
     public function groupAppliesMiddleware(): void
     {
         $this->router->group('/admin', function (Router $r): void {
-            $r->get('/dashboard', static fn(): ResponseInterface => new Response(200, [], 'dashboard'));
+            $r->get('/dashboard', static fn (): ResponseInterface => new Response(200, [], 'dashboard'));
         }, [DummyMiddleware::class]);
 
         $response = $this->router->handle(new ServerRequest('GET', '/admin/dashboard'));
@@ -190,7 +190,7 @@ final class RouterTest extends TestCase
     public function globalMiddlewareRunsOnAllRoutes(): void
     {
         $this->router->addMiddleware(DummyMiddleware::class);
-        $this->router->get('/test', static fn(): ResponseInterface => new Response(200, [], 'ok'));
+        $this->router->get('/test', static fn (): ResponseInterface => new Response(200, [], 'ok'));
 
         $response = $this->router->handle(new ServerRequest('GET', '/test'));
 
@@ -201,7 +201,7 @@ final class RouterTest extends TestCase
     public function multipleGlobalMiddleware(): void
     {
         $this->router->addMiddleware(DummyMiddleware::class, AnotherMiddleware::class);
-        $this->router->get('/test', static fn(): ResponseInterface => new Response(200, [], 'ok'));
+        $this->router->get('/test', static fn (): ResponseInterface => new Response(200, [], 'ok'));
 
         $response = $this->router->handle(new ServerRequest('GET', '/test'));
 
@@ -240,7 +240,7 @@ final class RouterTest extends TestCase
     #[Test]
     public function throws404ForUnknownRoute(): void
     {
-        $this->router->get('/home', static fn(): ResponseInterface => new Response(200));
+        $this->router->get('/home', static fn (): ResponseInterface => new Response(200));
 
         $this->expectException(RouteNotFoundException::class);
 
@@ -250,7 +250,7 @@ final class RouterTest extends TestCase
     #[Test]
     public function throws405ForDisallowedMethod(): void
     {
-        $this->router->get('/resource', static fn(): ResponseInterface => new Response(200));
+        $this->router->get('/resource', static fn (): ResponseInterface => new Response(200));
 
         try {
             $this->router->handle(new ServerRequest('POST', '/resource'));
@@ -266,8 +266,8 @@ final class RouterTest extends TestCase
     #[Test]
     public function getRouteCollectionReturnsCollection(): void
     {
-        $this->router->get('/a', static fn(): ResponseInterface => new Response(200));
-        $this->router->get('/b', static fn(): ResponseInterface => new Response(200));
+        $this->router->get('/a', static fn (): ResponseInterface => new Response(200));
+        $this->router->get('/b', static fn (): ResponseInterface => new Response(200));
 
         $collection = $this->router->getRouteCollection();
         $all = $collection->all();

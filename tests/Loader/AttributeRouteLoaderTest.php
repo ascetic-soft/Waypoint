@@ -26,7 +26,7 @@ final class AttributeRouteLoaderTest extends TestCase
 
         self::assertCount(5, $routes);
 
-        $names = array_map(static fn($r) => $r->getName(), $routes);
+        $names = array_map(static fn ($r) => $r->getName(), $routes);
         self::assertContains('home', $names);
         self::assertContains('show', $names);
         self::assertContains('create', $names);
@@ -41,7 +41,7 @@ final class AttributeRouteLoaderTest extends TestCase
 
         self::assertCount(3, $routes);
 
-        $patterns = array_map(static fn($r) => $r->getPattern(), $routes);
+        $patterns = array_map(static fn ($r) => $r->getPattern(), $routes);
         self::assertContains('/api/users/', $patterns);
         self::assertContains('/api/users/{id:\d+}', $patterns);
     }

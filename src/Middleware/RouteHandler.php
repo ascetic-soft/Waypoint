@@ -27,7 +27,8 @@ final class RouteHandler implements RequestHandlerInterface
         private readonly array|\Closure $handler,
         private readonly array $parameters,
         private readonly ContainerInterface $container,
-    ) {}
+    ) {
+    }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {

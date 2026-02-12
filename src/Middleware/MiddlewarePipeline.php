@@ -29,7 +29,8 @@ final class MiddlewarePipeline implements RequestHandlerInterface
         private readonly array $middlewares,
         private readonly RequestHandlerInterface $handler,
         private readonly ContainerInterface $container,
-    ) {}
+    ) {
+    }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {

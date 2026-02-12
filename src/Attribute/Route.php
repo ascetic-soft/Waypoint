@@ -33,5 +33,6 @@ final class Route
         public readonly string $name = '',
         public readonly array $middleware = [],
         public readonly int $priority = 0,
-    ) {}
+    ) {
+    }
 }

@@ -20,7 +20,8 @@ final class DiagnosticReport
         public readonly array $duplicatePaths = [],
         public readonly array $duplicateNames = [],
         public readonly array $shadowedRoutes = [],
-    ) {}
+    ) {
+    }
 
     /**
      * Whether any issues were detected.

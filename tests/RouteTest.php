@@ -307,7 +307,7 @@ final class RouteTest extends TestCase
     #[Test]
     public function supportsClosureHandler(): void
     {
-        $closure = static fn(): string => 'ok';
+        $closure = static fn (): string => 'ok';
 
         $route = new Route('/callback', ['GET'], $closure);
 

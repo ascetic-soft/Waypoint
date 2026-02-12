@@ -37,7 +37,8 @@ final class Route
         private readonly array $middleware = [],
         private readonly string $name = '',
         private readonly int $priority = 0,
-    ) {}
+    ) {
+    }
 
     /**
      * Compile the route pattern into a regular expression.
