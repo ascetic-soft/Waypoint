@@ -1,8 +1,18 @@
 {
     "name": "ascetic-soft/waypoint",
-    "description": "A lightweight PSR-15 compatible PHP router with attribute-based routing, middleware pipeline, and route caching",
+    "description": "A lightweight PSR-15 compatible PHP router with attribute-based routing, prefix-trie matching, middleware pipeline, route caching, and built-in diagnostics",
     "type": "library",
     "license": "MIT",
+    "keywords": [
+        "router",
+        "routing",
+        "psr-15",
+        "psr-7",
+        "middleware",
+        "attributes",
+        "http",
+        "trie"
+    ],
     "require": {
         "php": ">=8.4",
         "ext-mbstring": "*",
