@@ -19,6 +19,7 @@ A lightweight PSR-15 compatible PHP router with attribute-based routing, middlew
 - **Route groups** — shared path prefixes and middleware for related routes
 - **Route caching** — compile routes to a PHP file for OPcache-friendly production loading
 - **Automatic dependency injection** — route parameters, `ServerRequestInterface`, and container services injected into controller methods
+- **URL generation** — reverse routing from named routes and parameters
 - **Route diagnostics** — detect duplicate paths, duplicate names, and shadowed routes
 - **Priority-based matching** — control which route wins when patterns overlap
 
@@ -269,6 +270,36 @@ The diagnostic report detects:
 - **Duplicate names** — multiple routes sharing the same name
 - **Shadowed routes** — a more general pattern registered earlier hides a more specific one
 
+### URL Generation
+
+Generate URLs from named routes (reverse routing). Assign names when registering routes, then use `generate()` to build paths:
+
+```php
+// Register named routes
+$router->get('/users',          [UserController::class, 'list'], name: 'users.list');
+$router->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+
+// Generate URLs
+$url = $router->generate('users.show', ['id' => 42]);
+// => /users/42
+
+$url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
+// => /users?page=2&limit=10
+```
+
+Parameters are automatically URL-encoded. Extra parameters not present in the route pattern are ignored. Missing required parameters throw `MissingParametersException`.
+
+You can also use the `UrlGenerator` directly:
+
+```php
+use AsceticSoft\Waypoint\UrlGenerator;
+
+$generator = new UrlGenerator($router->getRouteCollection());
+$url = $generator->generate('users.show', ['id' => 42]);
+```
+
+URL generation works with cached routes — route names and patterns are preserved in the cache file.
+
 ### Exception Handling
 
 Waypoint throws specific exceptions for routing failures:
@@ -277,6 +308,8 @@ Waypoint throws specific exceptions for routing failures:
 |-----------|-----------|------|
 | `RouteNotFoundException` | 404 | No route pattern matches the URI |
 | `MethodNotAllowedException` | 405 | URI matches but HTTP method is not allowed |
+| `RouteNameNotFoundException` | — | No route with the given name (URL generation) |
+| `MissingParametersException` | — | Required route parameters not provided (URL generation) |
 
 ```php
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
@@ -302,6 +335,7 @@ Router  (PSR-15 RequestHandlerInterface)
 ├── AttributeRouteLoader    — reads #[Route] attributes via Reflection
 ├── MiddlewarePipeline      — FIFO PSR-15 middleware execution
 ├── RouteHandler            — invokes controller with DI
+├── UrlGenerator            — reverse routing (name + params → URL)
 ├── RouteCompiler           — compiles/loads route cache
 └── RouteDiagnostics        — conflict detection and reporting
 ```

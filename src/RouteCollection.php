@@ -35,6 +35,9 @@ final class RouteCollection
     /** Whether the trie has been built from the current route set. */
     private bool $trieBuilt = false;
 
+    /** @var array<string, Route>|null Lazy name-to-route index for reverse routing. */
+    private ?array $nameIndex = null;
+
     /**
      * Add a route to the collection.
      */
@@ -43,6 +46,7 @@ final class RouteCollection
         $this->routes[] = $route;
         $this->sorted = false;
         $this->trieBuilt = false;
+        $this->nameIndex = null;
     }
 
     /**
@@ -110,6 +114,18 @@ final class RouteCollection
         return $this->routes;
     }
 
+    /**
+     * Find a route by its name.
+     *
+     * @return Route|null The route with the given name, or null if not found.
+     */
+    public function findByName(string $name): ?Route
+    {
+        $this->buildNameIndex();
+
+        return $this->nameIndex[$name] ?? null;
+    }
+
     // ── Internals ────────────────────────────────────────────────
 
     /**
@@ -167,5 +183,27 @@ final class RouteCollection
 
         $this->routes = array_column($indexed, 0);
         $this->sorted = true;
+    }
+
+    /**
+     * Build the name-to-route index from the current route set.
+     *
+     * When multiple routes share the same name, the last one registered wins.
+     * The index is invalidated whenever a new route is added via {@see add()}.
+     */
+    private function buildNameIndex(): void
+    {
+        if ($this->nameIndex !== null) {
+            return;
+        }
+
+        $this->nameIndex = [];
+
+        foreach ($this->routes as $route) {
+            $name = $route->getName();
+            if ($name !== '') {
+                $this->nameIndex[$name] = $route;
+            }
+        }
     }
 }

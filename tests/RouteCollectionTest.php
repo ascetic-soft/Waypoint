@@ -170,4 +170,68 @@ final class RouteCollectionTest extends TestCase
 
         $collection->match('GET', '/something/else');
     }
+
+    // ── findByName ──────────────────────────────────────────────
+
+    #[Test]
+    public function findByNameReturnsCorrectRoute(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users', ['GET'], ['C', 'm'], name: 'users.list'));
+        $collection->add(new Route('/users/{id:\d+}', ['GET'], ['C', 'm'], name: 'users.show'));
+
+        $route = $collection->findByName('users.show');
+
+        self::assertNotNull($route);
+        self::assertSame('/users/{id:\d+}', $route->getPattern());
+    }
+
+    #[Test]
+    public function findByNameReturnsNullForUnknownName(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users', ['GET'], ['C', 'm'], name: 'users.list'));
+
+        self::assertNull($collection->findByName('nonexistent'));
+    }
+
+    #[Test]
+    public function findByNameIgnoresUnnamedRoutes(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/unnamed', ['GET'], ['C', 'm']));
+        $collection->add(new Route('/named', ['GET'], ['C', 'm'], name: 'named'));
+
+        self::assertNull($collection->findByName(''));
+        self::assertNotNull($collection->findByName('named'));
+    }
+
+    #[Test]
+    public function findByNameLastRegisteredWinsForDuplicateNames(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/first', ['GET'], ['C', 'm'], name: 'dup'));
+        $collection->add(new Route('/second', ['GET'], ['C', 'm'], name: 'dup'));
+
+        $route = $collection->findByName('dup');
+
+        self::assertNotNull($route);
+        self::assertSame('/second', $route->getPattern());
+    }
+
+    #[Test]
+    public function findByNameIndexIsInvalidatedAfterAdd(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/old', ['GET'], ['C', 'm'], name: 'route'));
+
+        // Build index
+        self::assertSame('/old', $collection->findByName('route')?->getPattern());
+
+        // Add a new route with the same name
+        $collection->add(new Route('/new', ['GET'], ['C', 'm'], name: 'route'));
+
+        // Index should be rebuilt and reflect the new route
+        self::assertSame('/new', $collection->findByName('route')?->getPattern());
+    }
 }

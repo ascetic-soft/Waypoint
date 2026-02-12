@@ -24,6 +24,7 @@ final class Router implements RequestHandlerInterface
 {
     private RouteCollection $routes;
     private AttributeRouteLoader $loader;
+    private ?UrlGenerator $urlGenerator = null;
 
     /** @var list<string|MiddlewareInterface> Global middleware stack. */
     private array $globalMiddleware = [];
@@ -60,7 +61,7 @@ final class Router implements RequestHandlerInterface
         array $middleware = [],
         string $name = '',
         int $priority = 0,
-    ): static {
+    ): self {
         $fullPath = $this->buildPath($path);
         $allMiddleware = array_merge($this->groupMiddleware, $middleware);
 
@@ -80,7 +81,7 @@ final class Router implements RequestHandlerInterface
      * @param array{0:class-string,1:string}|\Closure $handler
      * @param list<string>                             $middleware
      */
-    public function get(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
+    public function get(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
     {
         return $this->addRoute($path, $handler, ['GET'], $middleware, $name, $priority);
     }
@@ -89,7 +90,7 @@ final class Router implements RequestHandlerInterface
      * @param array{0:class-string,1:string}|\Closure $handler
      * @param list<string>                             $middleware
      */
-    public function post(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
+    public function post(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
     {
         return $this->addRoute($path, $handler, ['POST'], $middleware, $name, $priority);
     }
@@ -98,7 +99,7 @@ final class Router implements RequestHandlerInterface
      * @param array{0:class-string,1:string}|\Closure $handler
      * @param list<string>                             $middleware
      */
-    public function put(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
+    public function put(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
     {
         return $this->addRoute($path, $handler, ['PUT'], $middleware, $name, $priority);
     }
@@ -107,7 +108,7 @@ final class Router implements RequestHandlerInterface
      * @param array{0:class-string,1:string}|\Closure $handler
      * @param list<string>                             $middleware
      */
-    public function delete(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
+    public function delete(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
     {
         return $this->addRoute($path, $handler, ['DELETE'], $middleware, $name, $priority);
     }
@@ -121,7 +122,7 @@ final class Router implements RequestHandlerInterface
      * @param \Closure $callback   Callback that registers routes (receives $this).
      * @param list<string> $middleware Middleware applied to all routes in the group.
      */
-    public function group(string $prefix, \Closure $callback, array $middleware = []): static
+    public function group(string $prefix, \Closure $callback, array $middleware = []): self
     {
         $previousPrefix = $this->groupPrefix;
         $previousMiddleware = $this->groupMiddleware;
@@ -144,7 +145,7 @@ final class Router implements RequestHandlerInterface
      *
      * @param class-string ...$controllerClasses
      */
-    public function loadAttributes(string ...$controllerClasses): static
+    public function loadAttributes(string ...$controllerClasses): self
     {
         foreach ($controllerClasses as $className) {
             foreach ($this->loader->loadFromClass($className) as $route) {
@@ -161,7 +162,7 @@ final class Router implements RequestHandlerInterface
      * @param string $directory Absolute path to the directory.
      * @param string $namespace PSR-4 namespace prefix for the directory.
      */
-    public function scanDirectory(string $directory, string $namespace): static
+    public function scanDirectory(string $directory, string $namespace): self
     {
         foreach ($this->loader->loadFromDirectory($directory, $namespace) as $route) {
             $this->routes->add($route);
@@ -177,7 +178,7 @@ final class Router implements RequestHandlerInterface
      *
      * @param string|MiddlewareInterface ...$middleware
      */
-    public function addMiddleware(string|MiddlewareInterface ...$middleware): static
+    public function addMiddleware(string|MiddlewareInterface ...$middleware): self
     {
         array_push($this->globalMiddleware, ...$middleware);
 
@@ -198,10 +199,11 @@ final class Router implements RequestHandlerInterface
     /**
      * Load routes from a compiled cache file, replacing the current collection.
      */
-    public function loadCache(string $cacheFilePath): static
+    public function loadCache(string $cacheFilePath): self
     {
         $compiler = new RouteCompiler();
         $this->routes = $compiler->load($cacheFilePath);
+        $this->urlGenerator = null;
 
         return $this;
     }
@@ -252,6 +254,30 @@ final class Router implements RequestHandlerInterface
         return $pipeline->handle($routeRequest);
     }
 
+    // ── URL generation ──────────────────────────────────────────
+
+    /**
+     * Generate a URL path for the given named route.
+     *
+     * Convenience shortcut for {@see UrlGenerator::generate()}.
+     *
+     * @param string                            $name       The route name.
+     * @param array<string,string|int|float>  $parameters Route parameter values keyed by name.
+     * @param array<string,mixed>              $query      Optional query-string parameters.
+     */
+    public function generate(string $name, array $parameters = [], array $query = []): string
+    {
+        return $this->getUrlGenerator()->generate($name, $parameters, $query);
+    }
+
+    /**
+     * Get the URL generator instance (lazily created).
+     */
+    public function getUrlGenerator(): UrlGenerator
+    {
+        return $this->urlGenerator ??= new UrlGenerator($this->routes);
+    }
+
     // ── Access to internals (for diagnostics, testing) ───────────
 
     public function getRouteCollection(): RouteCollection
@@ -265,8 +291,6 @@ final class Router implements RequestHandlerInterface
     {
         $full = $this->groupPrefix . '/' . ltrim($path, '/');
         $normalised = preg_replace('#/{2,}#', '/', $full) ?? $full;
-        $full = '/' . ltrim($normalised, '/');
-
-        return $full;
+        return '/' . ltrim($normalised, '/');
     }
 }
