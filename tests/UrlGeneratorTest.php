@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AsceticSoft\Waypoint\Tests;
 
+use AsceticSoft\Waypoint\Exception\BaseUrlNotSetException;
 use AsceticSoft\Waypoint\Exception\MissingParametersException;
 use AsceticSoft\Waypoint\Exception\RouteNameNotFoundException;
 use AsceticSoft\Waypoint\Route;
@@ -113,6 +114,63 @@ final class UrlGeneratorTest extends TestCase
         self::assertSame('/tags/c%2B%2B', $url);
     }
 
+    // ── Absolute URLs ──────────────────────────────────────────
+
+    #[Test]
+    public function generateAbsoluteUrlWithBaseUrl(): void
+    {
+        $generator = new UrlGenerator($this->collection, 'https://example.com');
+        $this->collection->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+
+        $url = $generator->generate('about', absolute: true);
+
+        self::assertSame('https://example.com/about', $url);
+    }
+
+    #[Test]
+    public function generateAbsoluteUrlWithParametersAndQuery(): void
+    {
+        $generator = new UrlGenerator($this->collection, 'https://example.com');
+        $this->collection->add(new Route('/users/{id:\d+}/posts', ['GET'], ['C', 'm'], name: 'users.posts'));
+
+        $url = $generator->generate('users.posts', ['id' => 5], ['sort' => 'date'], absolute: true);
+
+        self::assertSame('https://example.com/users/5/posts?sort=date', $url);
+    }
+
+    #[Test]
+    public function generateAbsoluteUrlTrimsTrailingSlashFromBaseUrl(): void
+    {
+        $generator = new UrlGenerator($this->collection, 'https://example.com/');
+        $this->collection->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+
+        $url = $generator->generate('about', absolute: true);
+
+        self::assertSame('https://example.com/about', $url);
+    }
+
+    #[Test]
+    public function generateRelativeUrlIgnoresBaseUrl(): void
+    {
+        $generator = new UrlGenerator($this->collection, 'https://example.com');
+        $this->collection->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+
+        $url = $generator->generate('about');
+
+        self::assertSame('/about', $url);
+    }
+
+    #[Test]
+    public function throwsWhenAbsoluteRequestedWithoutBaseUrl(): void
+    {
+        $this->collection->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+
+        $this->expectException(BaseUrlNotSetException::class);
+        $this->expectExceptionMessage('base URL is not set');
+
+        $this->generator->generate('about', absolute: true);
+    }
+
     // ── Extra parameters are ignored ────────────────────────────
 
     #[Test]
@@ -178,6 +236,33 @@ final class UrlGeneratorTest extends TestCase
         $url = $router->generate('users.show', ['id' => 42]);
 
         self::assertSame('/users/42', $url);
+    }
+
+    #[Test]
+    public function routerGenerateAbsoluteUrl(): void
+    {
+        $container = new SimpleContainer();
+        $router = new Router($container);
+        $router->setBaseUrl('https://example.com');
+        $router->get('/users/{id:\d+}', static fn (): ResponseInterface => throw new \LogicException(), name: 'users.show');
+
+        $url = $router->generate('users.show', ['id' => 42], absolute: true);
+
+        self::assertSame('https://example.com/users/42', $url);
+    }
+
+    #[Test]
+    public function routerSetBaseUrlResetsUrlGenerator(): void
+    {
+        $container = new SimpleContainer();
+        $router = new Router($container);
+        $router->get('/about', static fn (): ResponseInterface => throw new \LogicException(), name: 'about');
+
+        $gen1 = $router->getUrlGenerator();
+        $router->setBaseUrl('https://example.com');
+        $gen2 = $router->getUrlGenerator();
+
+        self::assertNotSame($gen1, $gen2);
     }
 
     #[Test]

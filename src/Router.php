@@ -35,6 +35,9 @@ final class Router implements RequestHandlerInterface
     /** @var list<string> Current group middleware (used inside {@see group()} callback). */
     private array $groupMiddleware = [];
 
+    /** Base URL (scheme + host) used for absolute URL generation. */
+    private string $baseUrl = '';
+
     public function __construct(
         private readonly ContainerInterface $container,
     ) {
@@ -257,17 +260,31 @@ final class Router implements RequestHandlerInterface
     // ── URL generation ──────────────────────────────────────────
 
     /**
-     * Generate a URL path for the given named route.
+     * Set the base URL (scheme + host) for absolute URL generation.
+     *
+     * @param string $baseUrl e.g. "https://example.com"
+     */
+    public function setBaseUrl(string $baseUrl): self
+    {
+        $this->baseUrl = $baseUrl;
+        $this->urlGenerator = null; // reset so the new baseUrl takes effect
+
+        return $this;
+    }
+
+    /**
+     * Generate a URL for the given named route.
      *
      * Convenience shortcut for {@see UrlGenerator::generate()}.
      *
-     * @param string                            $name       The route name.
+     * @param string                          $name       The route name.
      * @param array<string,string|int|float>  $parameters Route parameter values keyed by name.
-     * @param array<string,mixed>              $query      Optional query-string parameters.
+     * @param array<string,mixed>             $query      Optional query-string parameters.
+     * @param bool                            $absolute   When true, prepend scheme and host.
      */
-    public function generate(string $name, array $parameters = [], array $query = []): string
+    public function generate(string $name, array $parameters = [], array $query = [], bool $absolute = false): string
     {
-        return $this->getUrlGenerator()->generate($name, $parameters, $query);
+        return $this->getUrlGenerator()->generate($name, $parameters, $query, $absolute);
     }
 
     /**
@@ -275,7 +292,7 @@ final class Router implements RequestHandlerInterface
      */
     public function getUrlGenerator(): UrlGenerator
     {
-        return $this->urlGenerator ??= new UrlGenerator($this->routes);
+        return $this->urlGenerator ??= new UrlGenerator($this->routes, $this->baseUrl);
     }
 
     // ── Access to internals (for diagnostics, testing) ───────────
