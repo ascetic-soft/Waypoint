@@ -49,7 +49,8 @@ final class AttributeRouteLoader
 
                 $path = $classPrefix . '/' . ltrim($methodRoute->path, '/');
                 // Normalise double slashes, but keep leading slash
-                $path = '/' . ltrim(preg_replace('#/{2,}#', '/', $path), '/');
+                $normalised = preg_replace('#/{2,}#', '/', $path) ?? $path;
+                $path = '/' . ltrim($normalised, '/');
 
                 $routes[] = new Route(
                     pattern: $path,

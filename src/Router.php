@@ -31,7 +31,7 @@ final class Router implements RequestHandlerInterface
     /** Current group prefix (used inside {@see group()} callback). */
     private string $groupPrefix = '';
 
-    /** Current group middleware (used inside {@see group()} callback). */
+    /** @var list<string> Current group middleware (used inside {@see group()} callback). */
     private array $groupMiddleware = [];
 
     public function __construct(
@@ -76,21 +76,37 @@ final class Router implements RequestHandlerInterface
         return $this;
     }
 
+    /**
+     * @param array{0:class-string,1:string}|\Closure $handler
+     * @param list<string>                             $middleware
+     */
     public function get(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
     {
         return $this->addRoute($path, $handler, ['GET'], $middleware, $name, $priority);
     }
 
+    /**
+     * @param array{0:class-string,1:string}|\Closure $handler
+     * @param list<string>                             $middleware
+     */
     public function post(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
     {
         return $this->addRoute($path, $handler, ['POST'], $middleware, $name, $priority);
     }
 
+    /**
+     * @param array{0:class-string,1:string}|\Closure $handler
+     * @param list<string>                             $middleware
+     */
     public function put(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
     {
         return $this->addRoute($path, $handler, ['PUT'], $middleware, $name, $priority);
     }
 
+    /**
+     * @param array{0:class-string,1:string}|\Closure $handler
+     * @param list<string>                             $middleware
+     */
     public function delete(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): static
     {
         return $this->addRoute($path, $handler, ['DELETE'], $middleware, $name, $priority);
@@ -248,7 +264,8 @@ final class Router implements RequestHandlerInterface
     private function buildPath(string $path): string
     {
         $full = $this->groupPrefix . '/' . ltrim($path, '/');
-        $full = '/' . ltrim(preg_replace('#/{2,}#', '/', $full), '/');
+        $normalised = preg_replace('#/{2,}#', '/', $full) ?? $full;
+        $full = '/' . ltrim($normalised, '/');
 
         return $full;
     }

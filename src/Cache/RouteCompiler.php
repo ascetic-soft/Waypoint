@@ -63,7 +63,7 @@ final class RouteCompiler
             ));
         }
 
-        /** @var list<array> $data */
+        /** @var list<array{path: string, methods: list<string>, handler: array{0:class-string,1:string}|\Closure, middleware: list<string>, name: string, compiledRegex: string, parameterNames: list<string>, priority?: int}> $data */
         $data = include $cacheFilePath;
 
         $collection = new RouteCollection();

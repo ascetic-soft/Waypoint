@@ -332,7 +332,7 @@ final readonly class RouteDiagnostics
             }
 
             // Blocker has a placeholder where shadowed has a static segment — blocker is wider
-            if ($bIsParam && !$aIsParam) {
+            if ($bIsParam) {
                 $hasWiderPlaceholder = true;
                 continue;
             }

@@ -16,7 +16,7 @@ final class Route
     /** Compiled regular expression (populated after {@see compile()}). */
     private string $compiledRegex = '';
 
-    /** Parameter names extracted from the pattern (populated after {@see compile()}). */
+    /** @var list<string> Parameter names extracted from the pattern (populated after {@see compile()}). */
     private array $parameterNames = [];
 
     /** Whether the route has been compiled. */
@@ -209,8 +209,8 @@ final class Route
      *     path: string,
      *     methods: list<string>,
      *     handler: array{0:class-string,1:string}|\Closure,
-     *     middleware: list<string>,
-     *     name: string,
+     *     middleware?: list<string>,
+     *     name?: string,
      *     compiledRegex: string,
      *     parameterNames: list<string>,
      *     priority?: int,

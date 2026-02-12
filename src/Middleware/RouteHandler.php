@@ -38,12 +38,14 @@ final class RouteHandler implements RequestHandlerInterface
         [$className, $methodName] = $this->handler;
 
         $controller = $this->container->get($className);
+        \assert(\is_object($controller));
+
         $reflection = new \ReflectionMethod($controller, $methodName);
 
         $args = $this->resolveArguments($reflection, $request);
 
-        /** @var ResponseInterface $response */
         $response = $reflection->invokeArgs($controller, $args);
+        \assert($response instanceof ResponseInterface);
 
         return $response;
     }
@@ -53,8 +55,10 @@ final class RouteHandler implements RequestHandlerInterface
         $reflection = new \ReflectionFunction($closure);
         $args = $this->resolveArguments($reflection, $request);
 
-        /** @var ResponseInterface $response */
-        return $closure(...$args);
+        $response = $closure(...$args);
+        \assert($response instanceof ResponseInterface);
+
+        return $response;
     }
 
     /**
