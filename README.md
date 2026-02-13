@@ -10,6 +10,8 @@
 
 A lightweight PSR-15 compatible PHP router with attribute-based routing, middleware pipeline, prefix-trie matching, and route caching.
 
+**Documentation:** [English](https://ascetic-soft.github.io/Waypoint/) | [Русский](https://ascetic-soft.github.io/Waypoint/ru/)
+
 ## Features
 
 - **PSR-15 compliant** — implements `RequestHandlerInterface`, works with any PSR-7 / PSR-15 stack
