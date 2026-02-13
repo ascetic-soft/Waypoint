@@ -39,6 +39,16 @@ final class RouteCollection
     private ?array $nameIndex = null;
 
     /**
+     * Raw compiled cache data (null when routes were added programmatically).
+     *
+     * When set, matching operates directly on plain PHP arrays — no Route
+     * or RouteTrie objects are reconstructed until a match is found.
+     *
+     * @var array{routes: list<array>, trie: array, fallback: list<int>, staticTable: array<string, int>}|null
+     */
+    private ?array $compiledData = null;
+
+    /**
      * Create a collection from pre-compiled cache data.
      *
      * The trie and fallback routes are already built — no sorting or
@@ -56,6 +66,25 @@ final class RouteCollection
         $collection->trie = $trie;
         $collection->fallbackRoutes = $fallbackRoutes;
         $collection->trieBuilt = true;
+
+        return $collection;
+    }
+
+    /**
+     * Create a collection from raw cache data — no object reconstruction.
+     *
+     * The trie, routes, and fallback indices remain as plain PHP arrays.
+     * Matching operates directly on these arrays, and only the matched
+     * route is instantiated as a {@see Route} object.
+     *
+     * @param array{routes: list<array>, trie: array, fallback: list<int>, staticTable: array<string, int>} $cacheData
+     */
+    public static function fromCompiledRaw(array $cacheData): self
+    {
+        $collection = new self();
+        $collection->compiledData = $cacheData;
+        $collection->trieBuilt = true;
+        $collection->sorted = true;
 
         return $collection;
     }
@@ -79,6 +108,11 @@ final class RouteCollection
      */
     public function match(string $method, string $uri): RouteMatchResult
     {
+        // Fast path: compiled cache data available — no objects needed.
+        if ($this->compiledData !== null) {
+            return $this->matchFromCompiled($method, $uri);
+        }
+
         $this->buildTrie();
 
         if ($this->trie === null) {
@@ -131,6 +165,7 @@ final class RouteCollection
      */
     public function all(): array
     {
+        $this->hydrateIfNeeded();
         $this->sort();
 
         return $this->routes;
@@ -143,6 +178,13 @@ final class RouteCollection
      */
     public function findByName(string $name): ?Route
     {
+        // Fast path: search raw compiled data without full hydration.
+        if ($this->compiledData !== null && $this->nameIndex === null) {
+            $this->buildNameIndexFromCompiled();
+
+            return $this->nameIndex[$name] ?? null;
+        }
+
         $this->buildNameIndex();
 
         return $this->nameIndex[$name] ?? null;
@@ -219,6 +261,8 @@ final class RouteCollection
             return;
         }
 
+        $this->hydrateIfNeeded();
+
         $this->nameIndex = [];
 
         foreach ($this->routes as $route) {
@@ -227,5 +271,116 @@ final class RouteCollection
                 $this->nameIndex[$name] = $route;
             }
         }
+    }
+
+    // ── Compiled data fast-path ─────────────────────────────────
+
+    /**
+     * Match against raw compiled cache data (no object reconstruction).
+     *
+     * Only the matched route is instantiated as a {@see Route} object.
+     *
+     * @throws RouteNotFoundException    When no route pattern matches the URI.
+     * @throws MethodNotAllowedException When the URI matches but the method is not allowed.
+     */
+    private function matchFromCompiled(string $method, string $uri): RouteMatchResult
+    {
+        \assert($this->compiledData !== null);
+
+        $method = strtoupper($method);
+
+        // 1. Static route hash table — O(1) lookup.
+        $key = $method . ':' . $uri;
+        if (isset($this->compiledData['staticTable'][$key])) {
+            $idx = $this->compiledData['staticTable'][$key];
+
+            return new RouteMatchResult(
+                Route::fromArray($this->compiledData['routes'][$idx]),
+                [],
+            );
+        }
+
+        // 2. Array-based trie matching.
+        $segments = RouteTrie::splitUri($uri);
+        $allowedMethods = [];
+
+        $result = RouteTrie::matchArray(
+            $this->compiledData['trie'],
+            $this->compiledData['routes'],
+            $method,
+            $segments,
+            0,
+            [],
+            $allowedMethods,
+        );
+
+        if ($result !== null) {
+            return new RouteMatchResult(
+                Route::fromArray($this->compiledData['routes'][$result['index']]),
+                $result['params'],
+            );
+        }
+
+        // 3. Fallback routes (non-trie-compatible).
+        foreach ($this->compiledData['fallback'] as $idx) {
+            $routeData = $this->compiledData['routes'][$idx];
+            $route = Route::fromArray($routeData);
+            $params = $route->match($uri);
+
+            if ($params === null) {
+                continue;
+            }
+
+            if ($route->allowsMethod($method)) {
+                return new RouteMatchResult($route, $params);
+            }
+
+            foreach ($route->getMethods() as $m) {
+                $allowedMethods[$m] = true;
+            }
+        }
+
+        if ($allowedMethods !== []) {
+            throw new MethodNotAllowedException(array_keys($allowedMethods), $method, $uri);
+        }
+
+        throw new RouteNotFoundException($uri);
+    }
+
+    /**
+     * Build the name index directly from compiled data without full hydration.
+     */
+    private function buildNameIndexFromCompiled(): void
+    {
+        \assert($this->compiledData !== null);
+
+        $this->nameIndex = [];
+
+        foreach ($this->compiledData['routes'] as $routeData) {
+            $name = $routeData['name'] ?? '';
+            if ($name !== '') {
+                $this->nameIndex[$name] = Route::fromArray($routeData);
+            }
+        }
+    }
+
+    /**
+     * Hydrate Route objects from compiled data if needed.
+     *
+     * Called lazily when full object access is required (e.g. {@see all()}).
+     */
+    private function hydrateIfNeeded(): void
+    {
+        if ($this->compiledData === null) {
+            return;
+        }
+
+        foreach ($this->compiledData['routes'] as $routeData) {
+            $this->routes[] = Route::fromArray($routeData);
+        }
+
+        $this->compiledData = null;
+        $this->sorted = true;
+        $this->trieBuilt = false; // trie will be rebuilt from objects if needed
     }
 }

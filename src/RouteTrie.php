@@ -190,9 +190,7 @@ final class RouteTrie
      */
     public function toArray(array $routeIndexMap): array
     {
-        $staticChildren = array_map(static function ($child) use ($routeIndexMap) {
-            return $child->toArray($routeIndexMap);
-        }, $this->staticChildren);
+        $staticChildren = array_map(static fn ($child) => $child->toArray($routeIndexMap), $this->staticChildren);
 
         $paramChildren = [];
         foreach ($this->paramChildren as $child) {
@@ -247,6 +245,91 @@ final class RouteTrie
         }
 
         return $node;
+    }
+
+    // ── Array-based matching (no object reconstruction) ─────────
+
+    /**
+     * Match against a trie stored as a plain PHP array (no RouteTrie objects).
+     *
+     * Used by {@see RouteCollection::matchFromCompiled()} to avoid
+     * reconstructing the full RouteTrie object graph on every request.
+     *
+     * @param array  $trieNode        Trie node from cache: {static, param, routes}
+     * @param array  $routeData       Flat array of route data from cache
+     * @param string $method          Upper-case HTTP method
+     * @param list<string> $segments  URI segments
+     * @param int    $depth           Current depth in segments
+     * @param array<string,string> $params Collected parameters
+     * @param array<string,true>  &$allowedMethods For 405 response
+     *
+     * @return array{index: int, params: array<string,string>}|null
+     */
+    public static function matchArray(
+        array $trieNode,
+        array $routeData,
+        string $method,
+        array $segments,
+        int $depth,
+        array $params,
+        array &$allowedMethods,
+    ): ?array {
+        // All segments consumed — check routes at this node.
+        if ($depth === \count($segments)) {
+            foreach ($trieNode['routes'] as $routeIndex) {
+                if (\in_array($method, $routeData[$routeIndex]['methods'], true)) {
+                    return ['index' => $routeIndex, 'params' => $params];
+                }
+                foreach ($routeData[$routeIndex]['methods'] as $m) {
+                    $allowedMethods[$m] = true;
+                }
+            }
+
+            return null;
+        }
+
+        $segment = $segments[$depth];
+
+        // 1. Static child — hash lookup.
+        if (isset($trieNode['static'][$segment])) {
+            $result = self::matchArray(
+                $trieNode['static'][$segment],
+                $routeData,
+                $method,
+                $segments,
+                $depth + 1,
+                $params,
+                $allowedMethods,
+            );
+
+            if ($result !== null) {
+                return $result;
+            }
+        }
+
+        // 2. Dynamic children — regex match.
+        foreach ($trieNode['param'] as $child) {
+            if (preg_match($child['regex'], $segment)) {
+                $childParams = $params;
+                $childParams[$child['paramName']] = $segment;
+
+                $result = self::matchArray(
+                    $child['node'],
+                    $routeData,
+                    $method,
+                    $segments,
+                    $depth + 1,
+                    $childParams,
+                    $allowedMethods,
+                );
+
+                if ($result !== null) {
+                    return $result;
+                }
+            }
+        }
+
+        return null;
     }
 
     // ── Segment helpers (static) ─────────────────────────────────

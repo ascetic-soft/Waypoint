@@ -23,7 +23,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 final class Router implements RequestHandlerInterface
 {
     private RouteCollection $routes;
-    private AttributeRouteLoader $loader;
+    private ?AttributeRouteLoader $loader = null;
     private ?UrlGenerator $urlGenerator = null;
 
     /** @var list<string|MiddlewareInterface> Global middleware stack. */
@@ -42,7 +42,6 @@ final class Router implements RequestHandlerInterface
         private readonly ContainerInterface $container,
     ) {
         $this->routes = new RouteCollection();
-        $this->loader = new AttributeRouteLoader();
     }
 
     // ── Manual registration ──────────────────────────────────────
@@ -151,7 +150,7 @@ final class Router implements RequestHandlerInterface
     public function loadAttributes(string ...$controllerClasses): self
     {
         foreach ($controllerClasses as $className) {
-            foreach ($this->loader->loadFromClass($className) as $route) {
+            foreach ($this->getLoader()->loadFromClass($className) as $route) {
                 $this->routes->add($route);
             }
         }
@@ -167,7 +166,7 @@ final class Router implements RequestHandlerInterface
      */
     public function scanDirectory(string $directory, string $namespace): self
     {
-        foreach ($this->loader->loadFromDirectory($directory, $namespace) as $route) {
+        foreach ($this->getLoader()->loadFromDirectory($directory, $namespace) as $route) {
             $this->routes->add($route);
         }
 
@@ -306,6 +305,17 @@ final class Router implements RequestHandlerInterface
     }
 
     // ── Private helpers ──────────────────────────────────────────
+
+    /**
+     * Lazily create the attribute route loader.
+     *
+     * The loader is only needed when routes are registered via attributes —
+     * not when the router loads exclusively from cache.
+     */
+    private function getLoader(): AttributeRouteLoader
+    {
+        return $this->loader ??= new AttributeRouteLoader();
+    }
 
     private function buildPath(string $path): string
     {
