@@ -15,6 +15,8 @@ namespace AsceticSoft\Waypoint;
  * are NOT trie-compatible and must fall back to linear matching.
  *
  * @internal Used by {@see RouteCollection}.
+ *
+ * @phpstan-import-type RouteDataArray from Route
  */
 final class RouteTrie
 {
@@ -255,13 +257,13 @@ final class RouteTrie
      * Used by {@see RouteCollection::matchFromCompiled()} to avoid
      * reconstructing the full RouteTrie object graph on every request.
      *
-     * @param array  $trieNode        Trie node from cache: {static, param, routes}
-     * @param array  $routeData       Flat array of route data from cache
-     * @param string $method          Upper-case HTTP method
-     * @param list<string> $segments  URI segments
-     * @param int    $depth           Current depth in segments
-     * @param array<string,string> $params Collected parameters
-     * @param array<string,true>  &$allowedMethods For 405 response
+     * @param array<string, mixed>       $trieNode        Trie node from cache: {static, param, routes}
+     * @param list<array<string, mixed>> $routeData       Flat array of route data from cache
+     * @param string                     $method          Upper-case HTTP method
+     * @param list<string>               $segments        URI segments
+     * @param int                        $depth           Current depth in segments
+     * @param array<string,string>       $params          Collected parameters
+     * @param array<string,true>         &$allowedMethods For 405 response
      *
      * @return array{index: int, params: array<string,string>}|null
      */
@@ -276,11 +278,18 @@ final class RouteTrie
     ): ?array {
         // All segments consumed — check routes at this node.
         if ($depth === \count($segments)) {
-            foreach ($trieNode['routes'] as $routeIndex) {
-                if (\in_array($method, $routeData[$routeIndex]['methods'], true)) {
+            /** @var list<int> $routeIndices */
+            $routeIndices = $trieNode['routes'];
+
+            foreach ($routeIndices as $routeIndex) {
+                /** @var list<string> $methods */
+                $methods = $routeData[$routeIndex]['methods'];
+
+                if (\in_array($method, $methods, true)) {
                     return ['index' => $routeIndex, 'params' => $params];
                 }
-                foreach ($routeData[$routeIndex]['methods'] as $m) {
+
+                foreach ($methods as $m) {
                     $allowedMethods[$m] = true;
                 }
             }
@@ -291,9 +300,14 @@ final class RouteTrie
         $segment = $segments[$depth];
 
         // 1. Static child — hash lookup.
-        if (isset($trieNode['static'][$segment])) {
+        /** @var array<string, array<string, mixed>> $staticChildren */
+        $staticChildren = $trieNode['static'];
+
+        if (isset($staticChildren[$segment])) {
+            $staticChild = $staticChildren[$segment];
+
             $result = self::matchArray(
-                $trieNode['static'][$segment],
+                $staticChild,
                 $routeData,
                 $method,
                 $segments,
@@ -308,7 +322,10 @@ final class RouteTrie
         }
 
         // 2. Dynamic children — regex match.
-        foreach ($trieNode['param'] as $child) {
+        /** @var list<array{paramName: string, pattern: string, regex: string, node: array<string, mixed>}> $paramChildren */
+        $paramChildren = $trieNode['param'];
+
+        foreach ($paramChildren as $child) {
             if (preg_match($child['regex'], $segment)) {
                 $childParams = $params;
                 $childParams[$child['paramName']] = $segment;

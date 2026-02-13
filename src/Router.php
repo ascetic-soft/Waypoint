@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AsceticSoft\Waypoint;
 
+use AsceticSoft\Waypoint\Cache\CompiledMatcherInterface;
 use AsceticSoft\Waypoint\Cache\RouteCompiler;
 use AsceticSoft\Waypoint\Loader\AttributeRouteLoader;
 use AsceticSoft\Waypoint\Middleware\MiddlewarePipeline;
@@ -200,11 +201,45 @@ final class Router implements RequestHandlerInterface
 
     /**
      * Load routes from a compiled cache file, replacing the current collection.
+     *
+     * Supports three cache formats:
+     * 1. Compiled PHP matcher (named class) — Phase 3 format (fastest)
+     * 2. Array with trie — Phase 2 format
+     * 3. Flat route array — legacy format
+     *
+     * The RouteCompiler object is NOT instantiated — the cache is loaded
+     * directly via `include` to avoid unnecessary overhead.
      */
     public function loadCache(string $cacheFilePath): self
     {
-        $compiler = new RouteCompiler();
-        $this->routes = $compiler->load($cacheFilePath);
+        if (!is_file($cacheFilePath)) {
+            throw new \RuntimeException(\sprintf(
+                'Route cache file "%s" does not exist.',
+                $cacheFilePath,
+            ));
+        }
+
+        $data = include $cacheFilePath;
+
+        if ($data instanceof CompiledMatcherInterface) {
+            // Phase 3: compiled PHP matcher (named class).
+            $this->routes = RouteCollection::fromCompiledMatcher($data);
+        } elseif (\is_array($data) && isset($data['trie'])) {
+            // Phase 2: array with pre-built trie.
+            /** @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
+            $this->routes = RouteCollection::fromCompiledRaw($data);
+        } elseif (\is_array($data)) {
+            // Legacy: flat array of route data.
+            $collection = new RouteCollection();
+            foreach ($data as $item) {
+                /** @var array{path: string, methods: list<string>, handler: array{0:class-string,1:string}|\Closure, middleware: list<string>, name: string, compiledRegex: string, parameterNames: list<string>, priority?: int, argPlan?: list<array<string, mixed>>} $item */
+                $collection->add(Route::fromArray($item));
+            }
+            $this->routes = $collection;
+        } else {
+            throw new \RuntimeException(\sprintf('Invalid route cache format in "%s".', $cacheFilePath));
+        }
+
         $this->urlGenerator = null;
 
         return $this;
@@ -243,12 +278,16 @@ final class Router implements RequestHandlerInterface
             argPlan: $route->getArgPlan(),
         );
 
-        // Merge global + route-specific middleware
-        $allMiddleware = array_merge($this->globalMiddleware, $route->getMiddleware());
+        // Merge global + route-specific middleware (avoid array_merge when either is empty).
+        $routeMw = $route->getMiddleware();
 
-        if ($allMiddleware === []) {
+        if ($this->globalMiddleware === [] && $routeMw === []) {
             return $routeHandler->handle($routeRequest);
         }
+
+        $allMiddleware = $this->globalMiddleware === []
+            ? $routeMw
+            : ($routeMw === [] ? $this->globalMiddleware : array_merge($this->globalMiddleware, $routeMw));
 
         $pipeline = new MiddlewarePipeline(
             middlewares: $allMiddleware,
@@ -269,15 +308,13 @@ final class Router implements RequestHandlerInterface
     public function setBaseUrl(string $baseUrl): self
     {
         $this->baseUrl = $baseUrl;
-        $this->urlGenerator = null; // reset so the new baseUrl takes effect
+        $this->urlGenerator = null;
 
         return $this;
     }
 
     /**
      * Generate a URL for the given named route.
-     *
-     * Convenience shortcut for {@see UrlGenerator::generate()}.
      *
      * @param string                          $name       The route name.
      * @param array<string,string|int|float>  $parameters Route parameter values keyed by name.
@@ -308,9 +345,6 @@ final class Router implements RequestHandlerInterface
 
     /**
      * Lazily create the attribute route loader.
-     *
-     * The loader is only needed when routes are registered via attributes —
-     * not when the router loads exclusively from cache.
      */
     private function getLoader(): AttributeRouteLoader
     {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AsceticSoft\Waypoint;
 
+use AsceticSoft\Waypoint\Cache\CompiledMatcherInterface;
 use AsceticSoft\Waypoint\Exception\MethodNotAllowedException;
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
 
@@ -17,6 +18,8 @@ use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
  * Routes are matched in priority order (descending), then in registration order.
  * If the URI matches at least one route but none of the matched routes allows
  * the requested HTTP method, {@see MethodNotAllowedException} is thrown.
+ *
+ * @phpstan-import-type RouteDataArray from Route
  */
 final class RouteCollection
 {
@@ -39,14 +42,19 @@ final class RouteCollection
     private ?array $nameIndex = null;
 
     /**
-     * Raw compiled cache data (null when routes were added programmatically).
+     * Raw compiled cache data — Phase 2 format (null when not loaded from Phase 2 cache).
      *
-     * When set, matching operates directly on plain PHP arrays — no Route
-     * or RouteTrie objects are reconstructed until a match is found.
-     *
-     * @var array{routes: list<array>, trie: array, fallback: list<int>, staticTable: array<string, int>}|null
+     * @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>}|null
      */
     private ?array $compiledData = null;
+
+    /**
+     * Compiled PHP matcher — Phase 3 format.
+     *
+     * When set, matching delegates to the compiled class with match expressions.
+     * Only the matched route is instantiated as a {@see Route} object.
+     */
+    private ?CompiledMatcherInterface $compiledMatcher = null;
 
     /**
      * Create a collection from pre-compiled cache data.
@@ -71,18 +79,30 @@ final class RouteCollection
     }
 
     /**
-     * Create a collection from raw cache data — no object reconstruction.
+     * Create a collection from raw cache data — Phase 2 format (no object reconstruction).
      *
-     * The trie, routes, and fallback indices remain as plain PHP arrays.
-     * Matching operates directly on these arrays, and only the matched
-     * route is instantiated as a {@see Route} object.
-     *
-     * @param array{routes: list<array>, trie: array, fallback: list<int>, staticTable: array<string, int>} $cacheData
+     * @param array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $cacheData
      */
     public static function fromCompiledRaw(array $cacheData): self
     {
         $collection = new self();
         $collection->compiledData = $cacheData;
+        $collection->trieBuilt = true;
+        $collection->sorted = true;
+
+        return $collection;
+    }
+
+    /**
+     * Create a collection from a compiled PHP matcher — Phase 3 format.
+     *
+     * The matcher class contains match expressions for O(1) static route lookup
+     * and generated trie-traversal methods for dynamic routes.
+     */
+    public static function fromCompiledMatcher(CompiledMatcherInterface $matcher): self
+    {
+        $collection = new self();
+        $collection->compiledMatcher = $matcher;
         $collection->trieBuilt = true;
         $collection->sorted = true;
 
@@ -108,6 +128,11 @@ final class RouteCollection
      */
     public function match(string $method, string $uri): RouteMatchResult
     {
+        // Fast path: compiled PHP matcher (Phase 3).
+        if ($this->compiledMatcher !== null) {
+            return $this->matchFromCompiledMatcher($method, $uri);
+        }
+
         // Fast path: compiled cache data available — no objects needed.
         if ($this->compiledData !== null) {
             return $this->matchFromCompiled($method, $uri);
@@ -178,6 +203,17 @@ final class RouteCollection
      */
     public function findByName(string $name): ?Route
     {
+        // Fast path: compiled PHP matcher with O(1) name lookup.
+        if ($this->compiledMatcher !== null && $this->nameIndex === null) {
+            $idx = $this->compiledMatcher->findByName($name);
+
+            if ($idx === null) {
+                return null;
+            }
+
+            return Route::fromCompactArray($this->compiledMatcher->getRoute($idx));
+        }
+
         // Fast path: search raw compiled data without full hydration.
         if ($this->compiledData !== null && $this->nameIndex === null) {
             $this->buildNameIndexFromCompiled();
@@ -194,10 +230,6 @@ final class RouteCollection
 
     /**
      * Build the prefix-tree from the current (sorted) route set.
-     *
-     * Each route is either inserted into the trie or placed in the fallback
-     * list for linear matching.  The trie is invalidated whenever a new route
-     * is added via {@see add()}.
      */
     private function buildTrie(): void
     {
@@ -223,8 +255,7 @@ final class RouteCollection
     }
 
     /**
-     * Sort routes by priority (descending). Stable sort preserves registration order
-     * for routes with equal priority.
+     * Sort routes by priority (descending). Stable sort preserves registration order.
      */
     private function sort(): void
     {
@@ -232,7 +263,6 @@ final class RouteCollection
             return;
         }
 
-        // Stable sort: preserve insertion order for equal priorities
         $index = 0;
         $indexed = [];
         foreach ($this->routes as $route) {
@@ -251,9 +281,6 @@ final class RouteCollection
 
     /**
      * Build the name-to-route index from the current route set.
-     *
-     * When multiple routes share the same name, the last one registered wins.
-     * The index is invalidated whenever a new route is added via {@see add()}.
      */
     private function buildNameIndex(): void
     {
@@ -273,12 +300,81 @@ final class RouteCollection
         }
     }
 
-    // ── Compiled data fast-path ─────────────────────────────────
+    // ── Compiled matcher fast-path (Phase 3) ────────────────────
 
     /**
-     * Match against raw compiled cache data (no object reconstruction).
+     * Match against a compiled PHP matcher object (Phase 3 format).
      *
-     * Only the matched route is instantiated as a {@see Route} object.
+     * @throws RouteNotFoundException    When no route pattern matches the URI.
+     * @throws MethodNotAllowedException When the URI matches but the method is not allowed.
+     */
+    private function matchFromCompiledMatcher(string $method, string $uri): RouteMatchResult
+    {
+        \assert($this->compiledMatcher !== null);
+
+        $method = strtoupper($method);
+
+        // 1. Static route hash table — O(1) match expression.
+        $result = $this->compiledMatcher->matchStatic($method, $uri);
+
+        if ($result !== null) {
+            [$idx, $params] = $result;
+
+            return new RouteMatchResult(
+                Route::fromCompactArray($this->compiledMatcher->getRoute($idx)),
+                $params,
+            );
+        }
+
+        // 2. Dynamic trie — generated segment-by-segment dispatch.
+        $allowedMethods = [];
+        $result = $this->compiledMatcher->matchDynamic($method, $uri, $allowedMethods);
+
+        if ($result !== null) {
+            [$idx, $params] = $result;
+
+            return new RouteMatchResult(
+                Route::fromCompactArray($this->compiledMatcher->getRoute($idx)),
+                $params,
+            );
+        }
+
+        // 3. Fallback routes (non-trie-compatible).
+        foreach ($this->compiledMatcher->getFallbackIndices() as $idx) {
+            $routeData = $this->compiledMatcher->getRoute($idx);
+            $route = Route::fromCompactArray($routeData);
+            $params = $route->match($uri);
+
+            if ($params === null) {
+                continue;
+            }
+
+            if ($route->allowsMethod($method)) {
+                return new RouteMatchResult($route, $params);
+            }
+
+            foreach ($route->getMethods() as $m) {
+                $allowedMethods[$m] = true;
+            }
+        }
+
+        // 4. Collect allowed methods from static routes (for 405).
+        $staticAllowed = $this->compiledMatcher->staticMethods($uri);
+        foreach ($staticAllowed as $m) {
+            $allowedMethods[$m] = true;
+        }
+
+        if ($allowedMethods !== []) {
+            throw new MethodNotAllowedException(array_keys($allowedMethods), $method, $uri);
+        }
+
+        throw new RouteNotFoundException($uri);
+    }
+
+    // ── Compiled data fast-path (Phase 2) ───────────────────────
+
+    /**
+     * Match against raw compiled cache data (Phase 2 — no object reconstruction).
      *
      * @throws RouteNotFoundException    When no route pattern matches the URI.
      * @throws MethodNotAllowedException When the URI matches but the method is not allowed.
@@ -293,9 +389,11 @@ final class RouteCollection
         $key = $method . ':' . $uri;
         if (isset($this->compiledData['staticTable'][$key])) {
             $idx = $this->compiledData['staticTable'][$key];
+            /** @var RouteDataArray $routeEntry */
+            $routeEntry = $this->compiledData['routes'][$idx];
 
             return new RouteMatchResult(
-                Route::fromArray($this->compiledData['routes'][$idx]),
+                Route::fromArray($routeEntry),
                 [],
             );
         }
@@ -315,14 +413,18 @@ final class RouteCollection
         );
 
         if ($result !== null) {
+            /** @var RouteDataArray $routeEntry */
+            $routeEntry = $this->compiledData['routes'][$result['index']];
+
             return new RouteMatchResult(
-                Route::fromArray($this->compiledData['routes'][$result['index']]),
+                Route::fromArray($routeEntry),
                 $result['params'],
             );
         }
 
         // 3. Fallback routes (non-trie-compatible).
         foreach ($this->compiledData['fallback'] as $idx) {
+            /** @var RouteDataArray $routeData */
             $routeData = $this->compiledData['routes'][$idx];
             $route = Route::fromArray($routeData);
             $params = $route->match($uri);
@@ -357,6 +459,7 @@ final class RouteCollection
         $this->nameIndex = [];
 
         foreach ($this->compiledData['routes'] as $routeData) {
+            /** @var RouteDataArray $routeData */
             $name = $routeData['name'] ?? '';
             if ($name !== '') {
                 $this->nameIndex[$name] = Route::fromArray($routeData);
@@ -366,21 +469,33 @@ final class RouteCollection
 
     /**
      * Hydrate Route objects from compiled data if needed.
-     *
-     * Called lazily when full object access is required (e.g. {@see all()}).
      */
     private function hydrateIfNeeded(): void
     {
-        if ($this->compiledData === null) {
+        // Hydrate from compiled PHP matcher (Phase 3).
+        if ($this->compiledMatcher !== null) {
+            $count = $this->compiledMatcher->getRouteCount();
+            for ($i = 0; $i < $count; $i++) {
+                $this->routes[] = Route::fromCompactArray($this->compiledMatcher->getRoute($i));
+            }
+
+            $this->compiledMatcher = null;
+            $this->sorted = true;
+            $this->trieBuilt = false;
+
             return;
         }
 
-        foreach ($this->compiledData['routes'] as $routeData) {
-            $this->routes[] = Route::fromArray($routeData);
-        }
+        // Hydrate from compiled data (Phase 2).
+        if ($this->compiledData !== null) {
+            foreach ($this->compiledData['routes'] as $routeData) {
+                /** @var RouteDataArray $routeData */
+                $this->routes[] = Route::fromArray($routeData);
+            }
 
-        $this->compiledData = null;
-        $this->sorted = true;
-        $this->trieBuilt = false; // trie will be rebuilt from objects if needed
+            $this->compiledData = null;
+            $this->sorted = true;
+            $this->trieBuilt = false;
+        }
     }
 }

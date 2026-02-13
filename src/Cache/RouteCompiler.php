@@ -12,18 +12,22 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * Compiles a {@see RouteCollection} into a PHP cache file for fast loading via opcache.
  *
- * The generated file contains the route data **and** a pre-built prefix-trie,
- * so that `load()` can restore the dispatch-ready state without sorting,
- * pattern parsing, or trie construction at runtime.
+ * Generates a **named PHP class** with `match` expressions and route data stored
+ * as immutable class constants.  PHP opcache caches the class definition and its
+ * constants in shared memory — the route table is loaded once per worker process,
+ * not allocated on every request.  Match expressions compile to hash-table
+ * lookups (O(1)).
  */
 final class RouteCompiler
 {
     /**
      * Compile the route collection into a PHP file.
      *
-     * Builds the prefix-trie at compile time and serialises it together
-     * with the route definitions and the list of non-trie-compatible
-     * (fallback) route indices.
+     * Generates a named PHP class with all data as immutable class constants:
+     * - `ROUTES`        — compact route data (opcache shared memory)
+     * - `STATIC_TABLE`  — method:uri → index for O(1) static lookups
+     * - `TRIE`          — serialised prefix trie for dynamic matching
+     * - `NAME_INDEX`    — name → index for O(1) name lookups
      *
      * @param RouteCollection $routes        The collection to compile.
      * @param string          $cacheFilePath Absolute path for the generated PHP file.
@@ -41,9 +45,31 @@ final class RouteCompiler
         foreach ($allRoutes as $index => $route) {
             $routeIndexMap[spl_object_id($route)] = $index;
 
-            $data = $route->toArray();
-            $data['argPlan'] = $this->buildArgPlan($route);
-            $routeData[] = $data;
+            $route->compile();
+
+            // Build compact route data.
+            $compact = [
+                'h' => $route->getHandler(),
+                'M' => $route->getMethods(),
+                'p' => $route->getPattern(),
+            ];
+
+            if ($route->getMiddleware() !== []) {
+                $compact['w'] = $route->getMiddleware();
+            }
+
+            $argPlan = $this->buildArgPlan($route);
+            if ($argPlan !== null) {
+                $compact['a'] = $argPlan;
+            }
+
+            if ($route->getName() !== '') {
+                $compact['n'] = $route->getName();
+            }
+
+            if ($route->getPriority() !== 0) {
+                $compact['P'] = $route->getPriority();
+            }
 
             if (RouteTrie::isCompatible($route->getPattern())) {
                 $segments = RouteTrie::parsePattern($route->getPattern());
@@ -51,6 +77,14 @@ final class RouteCompiler
             } else {
                 $fallbackIndices[] = $index;
             }
+
+            // Include regex/param data for routes that have parameters.
+            if ($route->getParameterNames() !== []) {
+                $compact['r'] = $route->getCompiledRegex();
+                $compact['N'] = $route->getParameterNames();
+            }
+
+            $routeData[] = $compact;
         }
 
         // Build static route hash table for O(1) dispatch.
@@ -59,7 +93,6 @@ final class RouteCompiler
             if ($route->getParameterNames() === []) {
                 foreach ($route->getMethods() as $method) {
                     $key = $method . ':' . $route->getPattern();
-                    // First match wins (routes are sorted by priority).
                     if (!isset($staticTable[$key])) {
                         $staticTable[$key] = $index;
                     }
@@ -67,19 +100,18 @@ final class RouteCompiler
             }
         }
 
-        $cacheData = [
-            'routes'      => $routeData,
-            'trie'        => $trie->toArray($routeIndexMap),
-            'fallback'    => $fallbackIndices,
-            'staticTable' => $staticTable,
-        ];
+        // Generate PHP code (compiled matcher class).
+        $content = $this->generateCompiledMatcher(
+            $routeData,
+            $trie->toArray($routeIndexMap),
+            $fallbackIndices,
+            $staticTable,
+        );
 
         $dir = \dirname($cacheFilePath);
         if (!is_dir($dir) && !mkdir($dir, 0o755, true) && !is_dir($dir)) {
             throw new \RuntimeException(\sprintf('Directory "%s" was not created', $dir));
         }
-
-        $content = \sprintf("<?php return %s;\n", var_export($cacheData, true));
 
         // Atomic write: write to temp file then rename
         $tmpFile = \sprintf('%s.%s.tmp', $cacheFilePath, uniqid('', true));
@@ -95,11 +127,10 @@ final class RouteCompiler
     /**
      * Load a {@see RouteCollection} from a previously compiled cache file.
      *
-     * When the cache contains a pre-built trie the raw array data is kept
-     * as-is — no Route or RouteTrie objects are constructed.  This reduces
-     * per-request overhead to a single `include` + one `RouteCollection`.
-     *
-     * Legacy (flat-array) caches are still supported via a fallback path.
+     * Supports three formats:
+     * 1. Compiled PHP matcher (named class) — Phase 3 format
+     * 2. Array with trie — Phase 2 format
+     * 3. Flat route array — legacy format
      *
      * @param string $cacheFilePath Absolute path to the compiled PHP file.
      */
@@ -112,19 +143,26 @@ final class RouteCompiler
             ));
         }
 
-        /** @var array<string|int, mixed> $data */
         $data = include $cacheFilePath;
 
-        // ── New format: keep raw arrays, no object reconstruction ──
+        // ── Phase 3: compiled PHP matcher (named class) ──
+        if ($data instanceof CompiledMatcherInterface) {
+            return RouteCollection::fromCompiledMatcher($data);
+        }
+
+        \assert(\is_array($data));
+
+        // ── Phase 2: array with trie ──
         if (isset($data['trie'])) {
+            /** @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
             return RouteCollection::fromCompiledRaw($data);
         }
 
-        // ── Legacy format: flat array of route data ─────────────────
-        /** @var list<array{path: string, methods: list<string>, handler: array{0:class-string,1:string}|\Closure, middleware: list<string>, name: string, compiledRegex: string, parameterNames: list<string>, priority?: int}> $data */
+        // ── Legacy: flat array of route data ──
         $collection = new RouteCollection();
 
         foreach ($data as $item) {
+            /** @var array{path: string, methods: list<string>, handler: array{0:class-string,1:string}|\Closure, middleware: list<string>, name: string, compiledRegex: string, parameterNames: list<string>, priority?: int, argPlan?: list<array<string, mixed>>} $item */
             $collection->add(Route::fromArray($item));
         }
 
@@ -139,7 +177,214 @@ final class RouteCompiler
         return is_file($cacheFilePath);
     }
 
-    // ── Argument plan builder (Optimisation 2) ───────────────────
+    // ── Code generation ────────────────────────────────────────
+
+    /**
+     * Generate the compiled PHP matcher class as a string.
+     *
+     * Uses a **named class** so that PHP opcache can cache:
+     * - the class definition (bytecode) in shared memory,
+     * - class constants (ROUTES, TRIE, STATIC_TABLE, etc.) as immutable arrays
+     *   in opcache shared memory — zero per-request allocation.
+     *
+     * A `class_exists` guard ensures the class is defined only once per process,
+     * so subsequent `include` calls (same worker) skip class definition entirely
+     * and just return `new ClassName()` — near-zero per-request cost.
+     *
+     * @param list<array<string, mixed>> $routeData       Compact route data for each route.
+     * @param array<string, mixed>       $trieArray       Serialised trie (from RouteTrie::toArray).
+     * @param list<int>                  $fallbackIndices Non-trie-compatible route indices.
+     * @param array<string, int>         $staticTable     method:uri → route index.
+     */
+    private function generateCompiledMatcher(
+        array $routeData,
+        array $trieArray,
+        array $fallbackIndices,
+        array $staticTable,
+    ): string {
+        // Content-based hash → unique class name per route set (avoids stale
+        // definitions when the cache is regenerated in the same process).
+        $hash = substr(hash('xxh128', serialize($routeData)), 0, 16);
+        $className = "WaypointCompiledMatcher_{$hash}";
+
+        // Build name index (name → route index).
+        $nameIndex = [];
+        foreach ($routeData as $index => $data) {
+            $name = $data['n'] ?? '';
+            if (\is_string($name) && $name !== '' && !isset($nameIndex[$name])) {
+                $nameIndex[$name] = $index;
+            }
+        }
+
+        // Build URI → allowed methods map (for 405 on static routes).
+        $uriMethods = [];
+        foreach ($staticTable as $key => $index) {
+            [$method, $uri] = explode(':', $key, 2);
+            $uriMethods[$uri][] = $method;
+        }
+
+        // ── Emit PHP ──
+        $code = "<?php\n\n";
+        $code .= "// Auto-generated by Waypoint RouteCompiler. Do not edit.\n\n";
+        $code .= "if (!\\class_exists('{$className}', false)) {\n\n";
+        $code .= "class {$className} implements \\AsceticSoft\\Waypoint\\Cache\\CompiledMatcherInterface\n{\n";
+
+        // ── Immutable class constants (opcache shared memory) ──
+        $code .= "    /** @var list<array<string, mixed>> Compact route data. */\n";
+        $code .= "    private const ROUTES = [\n";
+        foreach ($routeData as $index => $data) {
+            $code .= \sprintf("        %d => %s,\n", $index, $this->exportValue($data));
+        }
+        $code .= "    ];\n\n";
+
+        $code .= \sprintf("    /** @var array<string, int> method:uri → route index. */\n");
+        $code .= \sprintf("    private const STATIC_TABLE = %s;\n\n", $this->exportValue($staticTable));
+
+        $code .= \sprintf("    /** @var array<string, list<string>> uri → allowed methods. */\n");
+        $code .= \sprintf("    private const URI_METHODS = %s;\n\n", $this->exportValue($uriMethods));
+
+        $code .= "    /** @var array<string, mixed> Serialised prefix trie. */\n";
+        $code .= \sprintf("    private const TRIE = %s;\n\n", $this->exportValue($trieArray));
+
+        $code .= \sprintf("    /** @var list<int> Non-trie-compatible route indices. */\n");
+        $code .= \sprintf("    private const FALLBACK = %s;\n\n", $this->exportValue($fallbackIndices));
+
+        $code .= \sprintf("    /** @var array<string, int> name → route index. */\n");
+        $code .= \sprintf("    private const NAME_INDEX = %s;\n\n", $this->exportValue($nameIndex));
+
+        // ── matchStatic — O(1) hash table lookup via const array ──
+        $code .= "    public function matchStatic(string \$method, string \$uri): ?array\n";
+        $code .= "    {\n";
+        $code .= "        \$key = \$method . ':' . \$uri;\n";
+        $code .= "        return isset(self::STATIC_TABLE[\$key]) ? [self::STATIC_TABLE[\$key], []] : null;\n";
+        $code .= "    }\n\n";
+
+        // ── staticMethods — for 405 responses ──
+        $code .= "    public function staticMethods(string \$uri): array\n";
+        $code .= "    {\n";
+        $code .= "        return self::URI_METHODS[\$uri] ?? [];\n";
+        $code .= "    }\n\n";
+
+        // ── matchDynamic — data-driven trie traversal ──
+        $code .= "    public function matchDynamic(string \$method, string \$uri, array &\$allowedMethods = []): ?array\n";
+        $code .= "    {\n";
+        $code .= "        \$path = ltrim(\$uri, '/');\n";
+        $code .= "        \$segments = \$path === '' ? [] : explode('/', \$path);\n";
+        $code .= "        return \$this->walk(self::TRIE, \$method, \$segments, \\count(\$segments), 0, [], \$allowedMethods);\n";
+        $code .= "    }\n\n";
+
+        // ── walk — generic trie traversal (single method replaces N generated methods) ──
+        $code .= "    /** @param array<string, mixed> \$node */\n";
+        $code .= "    private function walk(array \$node, string \$m, array \$s, int \$n, int \$d, array \$p, array &\$am): ?array\n";
+        $code .= "    {\n";
+        $code .= "        if (\$d === \$n) {\n";
+        $code .= "            foreach (\$node['routes'] ?? [] as \$idx) {\n";
+        $code .= "                if (\\in_array(\$m, self::ROUTES[\$idx]['M'], true)) {\n";
+        $code .= "                    return [\$idx, \$p];\n";
+        $code .= "                }\n";
+        $code .= "                foreach (self::ROUTES[\$idx]['M'] as \$method) {\n";
+        $code .= "                    \$am[\$method] = true;\n";
+        $code .= "                }\n";
+        $code .= "            }\n";
+        $code .= "            return null;\n";
+        $code .= "        }\n";
+        $code .= "        \$seg = \$s[\$d];\n";
+        // Static child — hash lookup
+        $code .= "        if (isset(\$node['static'][\$seg])) {\n";
+        $code .= "            \$r = \$this->walk(\$node['static'][\$seg], \$m, \$s, \$n, \$d + 1, \$p, \$am);\n";
+        $code .= "            if (\$r !== null) { return \$r; }\n";
+        $code .= "        }\n";
+        // Param children — regex
+        $code .= "        foreach (\$node['param'] ?? [] as \$child) {\n";
+        $code .= "            if (preg_match(\$child['regex'], \$seg)) {\n";
+        $code .= "                \$r = \$this->walk(\$child['node'], \$m, \$s, \$n, \$d + 1, \$p + [\$child['paramName'] => \$seg], \$am);\n";
+        $code .= "                if (\$r !== null) { return \$r; }\n";
+        $code .= "            }\n";
+        $code .= "        }\n";
+        $code .= "        return null;\n";
+        $code .= "    }\n\n";
+
+        // ── getRoute — simple const access ──
+        $code .= "    public function getRoute(int \$idx): array\n";
+        $code .= "    {\n";
+        $code .= "        return self::ROUTES[\$idx];\n";
+        $code .= "    }\n\n";
+
+        // ── getRouteCount ──
+        $code .= "    public function getRouteCount(): int\n";
+        $code .= "    {\n";
+        $code .= \sprintf("        return %d;\n", \count($routeData));
+        $code .= "    }\n\n";
+
+        // ── getFallbackIndices ──
+        $code .= "    public function getFallbackIndices(): array\n";
+        $code .= "    {\n";
+        $code .= "        return self::FALLBACK;\n";
+        $code .= "    }\n\n";
+
+        // ── findByName — O(1) const array lookup ──
+        $code .= "    public function findByName(string \$name): ?int\n";
+        $code .= "    {\n";
+        $code .= "        return self::NAME_INDEX[\$name] ?? null;\n";
+        $code .= "    }\n";
+
+        $code .= "}\n\n"; // end class
+        $code .= "}\n\n"; // end if (!class_exists)
+        $code .= "return new {$className}();\n";
+
+        return $code;
+    }
+
+    // ── Helpers ────────────────────────────────────────────────
+
+    /**
+     * Export a PHP value as compact code (short array syntax, minimal whitespace).
+     */
+    private function exportValue(mixed $value): string
+    {
+        if ($value === null) {
+            return 'null';
+        }
+
+        if ($value === true) {
+            return 'true';
+        }
+
+        if ($value === false) {
+            return 'false';
+        }
+
+        if (\is_int($value) || \is_float($value)) {
+            return (string) $value;
+        }
+
+        if (\is_string($value)) {
+            return var_export($value, true);
+        }
+
+        if (\is_array($value)) {
+            if ($value === []) {
+                return '[]';
+            }
+
+            $isList = array_is_list($value);
+            $parts = [];
+
+            foreach ($value as $k => $v) {
+                if ($isList) {
+                    $parts[] = $this->exportValue($v);
+                } else {
+                    $parts[] = $this->exportValue($k) . ' => ' . $this->exportValue($v);
+                }
+            }
+
+            return '[' . implode(', ', $parts) . ']';
+        }
+
+        return var_export($value, true);
+    }
+
+    // ── Argument plan builder ──────────────────────────────────
 
     /**
      * Analyse a handler's method signature and build a resolution plan.
@@ -197,8 +442,6 @@ final class RouteCompiler
             }
 
             // 3. Inject service from container by type-hint.
-            //    If the parameter also has a default or is nullable the runtime
-            //    behaviour depends on container state — bail out.
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
                 if ($param->isDefaultValueAvailable() || $type->allowsNull()) {
                     return null; // Ambiguous — fall back to Reflection at runtime.

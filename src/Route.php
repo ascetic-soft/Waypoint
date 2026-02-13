@@ -10,6 +10,18 @@ namespace AsceticSoft\Waypoint;
  * Holds the route pattern, allowed HTTP methods, handler reference,
  * middleware stack, optional name, priority, and the compiled regex
  * produced by {@see compile()}.
+ *
+ * @phpstan-type RouteDataArray array{
+ *     path: string,
+ *     methods: list<string>,
+ *     handler: array{0:class-string,1:string}|\Closure,
+ *     middleware?: list<string>,
+ *     name?: string,
+ *     compiledRegex: string,
+ *     parameterNames: list<string>,
+ *     priority?: int,
+ *     argPlan?: list<array<string, mixed>>,
+ * }
  */
 final class Route
 {
@@ -260,6 +272,46 @@ final class Route
         $route->parameterNames = $data['parameterNames'];
         $route->compiled = true;
         $route->argPlan = $data['argPlan'] ?? null;
+
+        return $route;
+    }
+
+    /**
+     * Restore a Route from a compact cached array (produced by compiled matcher).
+     *
+     * Compact keys: h=handler, M=methods, p=pattern, w=middleware, n=name,
+     * P=priority, r=compiledRegex, N=parameterNames, a=argPlan.
+     *
+     * @param array{
+     *     h: array{0:class-string,1:string}|\Closure,
+     *     M: list<string>,
+     *     p: string,
+     *     w?: list<string>,
+     *     n?: string,
+     *     P?: int,
+     *     r?: string,
+     *     N?: list<string>,
+     *     a?: list<array<string, mixed>>|null,
+     * } $data
+     */
+    public static function fromCompactArray(array $data): self
+    {
+        $route = new self(
+            pattern: $data['p'],
+            methods: $data['M'],
+            handler: $data['h'],
+            middleware: $data['w'] ?? [],
+            name: $data['n'] ?? '',
+            priority: $data['P'] ?? 0,
+        );
+
+        if (isset($data['r'])) {
+            $route->compiledRegex = $data['r'];
+            $route->parameterNames = $data['N'] ?? [];
+            $route->compiled = true;
+        }
+
+        $route->argPlan = $data['a'] ?? null;
 
         return $route;
     }
