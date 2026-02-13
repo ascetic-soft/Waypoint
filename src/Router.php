@@ -226,10 +226,12 @@ final class Router implements RequestHandlerInterface
 
         $result = $this->routes->match($method, $uri);
 
-        // Store route parameters in request attributes
+        // Store route parameters in request attributes (skip when empty).
         $routeRequest = $request;
-        foreach ($result->parameters as $key => $value) {
-            $routeRequest = $routeRequest->withAttribute($key, $value);
+        if ($result->parameters !== []) {
+            foreach ($result->parameters as $key => $value) {
+                $routeRequest = $routeRequest->withAttribute($key, $value);
+            }
         }
 
         $route = $result->route;
@@ -239,6 +241,7 @@ final class Router implements RequestHandlerInterface
             handler: $route->getHandler(),
             parameters: $result->parameters,
             container: $this->container,
+            argPlan: $route->getArgPlan(),
         );
 
         // Merge global + route-specific middleware

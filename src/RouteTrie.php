@@ -92,7 +92,7 @@ final class RouteTrie
             'node' => $node,
             'paramName' => $paramName,
             'pattern' => $pattern,
-            'regex' => sprintf('#^%s$#', $pattern),
+            'regex' => \sprintf('#^%s$#', $pattern),
         ];
         $node->insert($route, $segments, $depth + 1);
     }
@@ -125,7 +125,7 @@ final class RouteTrie
         if ($depth === \count($segments)) {
             foreach ($this->routes as $route) {
                 if ($route->allowsMethod($method)) {
-                    return ['route' => $route, 'params' => $params];
+                    return compact('route', 'params');
                 }
 
                 // URI matched but method did not — collect for 405.
@@ -175,6 +175,78 @@ final class RouteTrie
         }
 
         return null;
+    }
+
+    // ── Serialisation ────────────────────────────────────────────
+
+    /**
+     * Serialize the trie node (and all descendants) to a plain PHP array.
+     *
+     * Route references are stored as integer indices into a flat route list.
+     *
+     * @param array<int, int> $routeIndexMap Map of `spl_object_id(Route)` → integer index.
+     *
+     * @return array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>}
+     */
+    public function toArray(array $routeIndexMap): array
+    {
+        $staticChildren = array_map(static function ($child) use ($routeIndexMap) {
+            return $child->toArray($routeIndexMap);
+        }, $this->staticChildren);
+
+        $paramChildren = [];
+        foreach ($this->paramChildren as $child) {
+            $paramChildren[] = [
+                'paramName' => $child['paramName'],
+                'pattern'   => $child['pattern'],
+                'regex'     => $child['regex'],
+                'node'      => $child['node']->toArray($routeIndexMap),
+            ];
+        }
+
+        $routeIndices = [];
+        foreach ($this->routes as $route) {
+            $routeIndices[] = $routeIndexMap[spl_object_id($route)];
+        }
+
+        return [
+            'static' => $staticChildren,
+            'param'  => $paramChildren,
+            'routes' => $routeIndices,
+        ];
+    }
+
+    /**
+     * Restore a trie node (and all descendants) from a cached array.
+     *
+     * @param array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>} $data
+     * @param list<Route> $routeObjects Flat list of Route objects, indexed by cache position.
+     */
+    public static function fromArray(array $data, array $routeObjects): self
+    {
+        $node = new self();
+
+        foreach ($data['static'] as $key => $childData) {
+            \assert(\is_array($childData));
+            /** @var array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>} $childData */
+            $node->staticChildren[$key] = self::fromArray($childData, $routeObjects);
+        }
+
+        foreach ($data['param'] as $childData) {
+            /** @var array{paramName: string, pattern: string, regex: string, node: array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>}} $childData */
+            $node->paramChildren[] = [
+                'paramName' => $childData['paramName'],
+                'pattern'   => $childData['pattern'],
+                'regex'     => $childData['regex'],
+                'node'      => self::fromArray($childData['node'], $routeObjects),
+            ];
+        }
+
+        foreach ($data['routes'] as $index) {
+            $node->routes[] = $routeObjects[$index];
+        }
+
+        return $node;
     }
 
     // ── Segment helpers (static) ─────────────────────────────────
@@ -263,7 +335,7 @@ final class RouteTrie
             // Parameter regex must not match '/'.
             $regex = ($m[2] ?? '') !== '' ? $m[2] : '[^/]+';
 
-            if (@preg_match(sprintf('#^%s$#', $regex), '/') === 1) {
+            if (@preg_match(\sprintf('#^%s$#', $regex), '/') === 1) {
                 return false;
             }
         }

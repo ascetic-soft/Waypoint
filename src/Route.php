@@ -23,6 +23,16 @@ final class Route
     private bool $compiled = false;
 
     /**
+     * Pre-computed argument resolution plan (populated by {@see RouteCompiler}).
+     *
+     * Each entry describes how to resolve one handler parameter at dispatch time
+     * without Reflection.
+     *
+     * @var list<array<string, mixed>>|null
+     */
+    private ?array $argPlan = null;
+
+    /**
      * @param string               $pattern    Route path pattern (e.g. '/users/{id:\d+}').
      * @param list<string>         $methods    Allowed HTTP methods (upper-case, e.g. ['GET', 'POST']).
      * @param array{0:class-string,1:string}|\Closure $handler Controller reference ([class, method]) or a closure.
@@ -66,12 +76,12 @@ final class Route
 
                 $constraint = ($matches[2] ?? '') !== '' ? $matches[2] : '[^/]+';
 
-                return sprintf('(?P<%s>%s)', $matches[1], $constraint);
+                return \sprintf('(?P<%s>%s)', $matches[1], $constraint);
             },
             $this->pattern,
         );
 
-        $this->compiledRegex = sprintf('#^%s$#', $regex);
+        $this->compiledRegex = \sprintf('#^%s$#', $regex);
         $this->compiled = true;
 
         return $this;
@@ -168,6 +178,16 @@ final class Route
         return $this->parameterNames;
     }
 
+    /**
+     * Pre-computed argument resolution plan, or null when not available.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    public function getArgPlan(): ?array
+    {
+        return $this->argPlan;
+    }
+
     // ── Serialisation (for route cache) ──────────────────────────
 
     /**
@@ -182,13 +202,14 @@ final class Route
      *     compiledRegex: string,
      *     parameterNames: list<string>,
      *     priority: int,
+     *     argPlan?: list<array<string, mixed>>,
      * }
      */
     public function toArray(): array
     {
         $this->compile();
 
-        return [
+        $data = [
             'path' => $this->pattern,
             'methods' => $this->methods,
             'handler' => $this->handler,
@@ -198,6 +219,12 @@ final class Route
             'parameterNames' => $this->parameterNames,
             'priority' => $this->priority,
         ];
+
+        if ($this->argPlan !== null) {
+            $data['argPlan'] = $this->argPlan;
+        }
+
+        return $data;
     }
 
     /**
@@ -215,6 +242,7 @@ final class Route
      *     compiledRegex: string,
      *     parameterNames: list<string>,
      *     priority?: int,
+     *     argPlan?: list<array<string, mixed>>,
      * } $data
      */
     public static function fromArray(array $data): self
@@ -231,6 +259,7 @@ final class Route
         $route->compiledRegex = $data['compiledRegex'];
         $route->parameterNames = $data['parameterNames'];
         $route->compiled = true;
+        $route->argPlan = $data['argPlan'] ?? null;
 
         return $route;
     }

@@ -39,6 +39,28 @@ final class RouteCollection
     private ?array $nameIndex = null;
 
     /**
+     * Create a collection from pre-compiled cache data.
+     *
+     * The trie and fallback routes are already built — no sorting or
+     * trie construction is needed at runtime.
+     *
+     * @param list<Route> $routes         All routes (already sorted by priority).
+     * @param RouteTrie   $trie           Pre-built prefix trie.
+     * @param list<Route> $fallbackRoutes Non-trie-compatible routes.
+     */
+    public static function fromCompiled(array $routes, RouteTrie $trie, array $fallbackRoutes): self
+    {
+        $collection = new self();
+        $collection->routes = $routes;
+        $collection->sorted = true;
+        $collection->trie = $trie;
+        $collection->fallbackRoutes = $fallbackRoutes;
+        $collection->trieBuilt = true;
+
+        return $collection;
+    }
+
+    /**
      * Add a route to the collection.
      */
     public function add(Route $route): void
