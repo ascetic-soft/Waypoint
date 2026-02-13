@@ -1,7 +1,7 @@
 # Waypoint
 
 [![CI](https://github.com/ascetic-soft/Waypoint/actions/workflows/ci.yml/badge.svg)](https://github.com/ascetic-soft/Waypoint/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/ascetic-soft/Waypoint/graph/badge.svg)](https://codecov.io/gh/ascetic-soft/Waypoint)
+[![codecov](https://codecov.io/gh/ascetic-soft/Waypoint/graph/badge.svg?token=cK4v0Ph4ol)](https://codecov.io/gh/ascetic-soft/Waypoint)
 [![PHPStan Level 9](https://img.shields.io/badge/phpstan-level%209-brightgreen)](https://phpstan.org/)
 [![Latest Stable Version](https://img.shields.io/packagist/v/ascetic-soft/Waypoint)](https://packagist.org/packages/ascetic-soft/Waypoint)
 [![Total Downloads](https://img.shields.io/packagist/dt/ascetic-soft/Waypoint)](https://packagist.org/packages/ascetic-soft/Waypoint)
