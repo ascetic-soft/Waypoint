@@ -1,0 +1,56 @@
+title: Waypoint
+description: Lightweight PSR-15 PHP Router with Attribute Routing, Prefix-Trie Matching & Middleware Pipeline
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+url: "https://ascetic-soft.github.io"
+baseurl: "/Waypoint"
+
+color_scheme: light
+
+aux_links:
+  "Русский":
+    - "/Waypoint/ru/"
+  "GitHub":
+    - "https://github.com/ascetic-soft/Waypoint"
+  "Packagist":
+    - "https://packagist.org/packages/ascetic-soft/waypoint"
+
+aux_links_new_tab: true
+
+nav_sort: case_insensitive
+
+heading_anchors: true
+
+search_enabled: true
+search.rel_url: true
+search.focus_shortcut_key: "k"
+
+back_to_top: true
+back_to_top_text: "Back to top"
+
+footer_content: 'Waypoint &mdash; MIT License &mdash; <a href="https://github.com/ascetic-soft/Waypoint">GitHub</a>'
+
+callouts:
+  note:
+    title: Note
+    color: blue
+  warning:
+    title: Warning
+    color: red
+  tip:
+    title: Tip
+    color: green
+  important:
+    title: Important
+    color: yellow
+
+plugins:
+  - jekyll-remote-theme
+
+sass:
+  style: compressed
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
