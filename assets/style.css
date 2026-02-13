@@ -209,6 +209,15 @@ img {
     background: var(--color-accent-bg);
 }
 
+.sidebar-footer .lang-switch {
+    color: var(--color-accent);
+    font-weight: 500;
+}
+
+.sidebar-footer .lang-switch:hover {
+    background: var(--color-accent-bg);
+}
+
 /* ---------- Main Content ---------- */
 .main {
     margin-left: var(--sidebar-width);
