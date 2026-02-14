@@ -53,8 +53,17 @@ final class MiddlewarePipeline implements RequestHandlerInterface
         $middleware = $this->middlewares[$this->index];
 
         if (\is_string($middleware)) {
-            $this->resolvedMiddleware[$middleware] ??= $this->container->get($middleware);
-            /** @var MiddlewareInterface $middleware */
+            if (!isset($this->resolvedMiddleware[$middleware])) {
+                $resolved = $this->container->get($middleware);
+                if (!$resolved instanceof MiddlewareInterface) {
+                    throw new \RuntimeException(\sprintf(
+                        'Middleware "%s" resolved from the container must implement %s.',
+                        $middleware,
+                        MiddlewareInterface::class,
+                    ));
+                }
+                $this->resolvedMiddleware[$middleware] = $resolved;
+            }
             $middleware = $this->resolvedMiddleware[$middleware];
         }
 

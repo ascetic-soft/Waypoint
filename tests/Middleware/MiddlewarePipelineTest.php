@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
 final class MiddlewarePipelineTest extends TestCase
@@ -154,6 +155,80 @@ final class MiddlewarePipelineTest extends TestCase
         self::assertCount(2, $resolvedClasses);
         self::assertContains(DummyMiddleware::class, $resolvedClasses);
         self::assertContains(AnotherMiddleware::class, $resolvedClasses);
+    }
+
+    #[Test]
+    public function indexIsRestoredAfterMiddlewareThrowsException(): void
+    {
+        $container = new SimpleContainer();
+        $handler = $this->createFallbackHandler(new Response(200, [], 'fallback'));
+
+        $throwingMiddleware = new class () implements MiddlewareInterface {
+            public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
+            {
+                throw new \RuntimeException('middleware error');
+            }
+        };
+
+        $pipeline = new MiddlewarePipeline([$throwingMiddleware], $handler, $container);
+
+        try {
+            $pipeline->handle(new ServerRequest('GET', '/'));
+            self::fail('Expected RuntimeException was not thrown.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('middleware error', $e->getMessage());
+        }
+
+        // Pipeline must be reusable after an exception — index was restored by finally.
+        $pipeline2 = new MiddlewarePipeline([], $handler, $container);
+        $response = $pipeline2->handle(new ServerRequest('GET', '/'));
+        self::assertSame('fallback', (string) $response->getBody());
+    }
+
+    #[Test]
+    public function pipelineIsReusableAcrossMultipleCalls(): void
+    {
+        $container = new SimpleContainer();
+        $handler = $this->createFallbackHandler(new Response(200, [], 'ok'));
+
+        $pipeline = new MiddlewarePipeline(
+            [new DummyMiddleware()],
+            $handler,
+            $container,
+        );
+
+        $first = $pipeline->handle(new ServerRequest('GET', '/first'));
+        $second = $pipeline->handle(new ServerRequest('GET', '/second'));
+
+        self::assertSame('applied', $first->getHeaderLine('X-Dummy-Middleware'));
+        self::assertSame('applied', $second->getHeaderLine('X-Dummy-Middleware'));
+    }
+
+    #[Test]
+    public function shortCircuitMiddlewareSkipsRemainingStack(): void
+    {
+        $container = new SimpleContainer();
+        $handler = $this->createFallbackHandler(new Response(200, [], 'should-not-reach'));
+
+        $shortCircuit = new class () implements MiddlewareInterface {
+            public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
+            {
+                return new Response(403, [], 'forbidden');
+            }
+        };
+
+        $pipeline = new MiddlewarePipeline(
+            [$shortCircuit, new DummyMiddleware()],
+            $handler,
+            $container,
+        );
+
+        $response = $pipeline->handle(new ServerRequest('GET', '/'));
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame('forbidden', (string) $response->getBody());
+        // DummyMiddleware was never reached, so its header must be absent.
+        self::assertSame('', $response->getHeaderLine('X-Dummy-Middleware'));
     }
 
     private function createFallbackHandler(ResponseInterface $response): RequestHandlerInterface
