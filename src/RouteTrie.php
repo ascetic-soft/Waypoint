@@ -437,7 +437,15 @@ final class RouteTrie
             // Parameter regex must not match '/'.
             $regex = ($m[2] ?? '') !== '' ? $m[2] : '[^/]+';
 
-            if (@preg_match(\sprintf('#^%s$#', $regex), '/') === 1) {
+            $fullRegex = \sprintf('#^%s$#', $regex);
+
+            // Validate the regex first — avoid @ error suppression overhead.
+            if (preg_match($fullRegex, '') === false) {
+                // Invalid regex — treat as incompatible.
+                return false;
+            }
+
+            if (preg_match($fullRegex, '/') === 1) {
                 return false;
             }
         }

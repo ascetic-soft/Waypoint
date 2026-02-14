@@ -539,6 +539,78 @@ final class RouterTest extends TestCase
         }
     }
 
+    // ── HEAD method automatic fallback ─────────────────────────
+
+    #[Test]
+    public function headRequestMatchesGetRoute(): void
+    {
+        $this->router->get('/hello', static fn (): ResponseInterface => new Response(200, [], 'hello'));
+
+        $response = $this->router->handle(new ServerRequest('HEAD', '/hello'));
+
+        self::assertSame(200, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function headRequestMatchesDynamicGetRoute(): void
+    {
+        $this->router->get(
+            '/users/{id:\d+}',
+            static fn (int $id): ResponseInterface => new Response(200, [], "user:$id"),
+        );
+
+        $response = $this->router->handle(new ServerRequest('HEAD', '/users/42'));
+
+        self::assertSame(200, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function headRequestPrefersExplicitHeadRoute(): void
+    {
+        $this->router->addRoute(
+            '/info',
+            static fn (): ResponseInterface => new Response(204),
+            ['HEAD'],
+        );
+        $this->router->get('/info', static fn (): ResponseInterface => new Response(200, [], 'get-body'));
+
+        $response = $this->router->handle(new ServerRequest('HEAD', '/info'));
+
+        self::assertSame(204, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function headRequestThrows405WhenNoGetRouteExists(): void
+    {
+        $this->router->post('/items', static fn (): ResponseInterface => new Response(201));
+
+        try {
+            $this->router->handle(new ServerRequest('HEAD', '/items'));
+            self::fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            self::assertSame(405, $e->getCode());
+            self::assertContains('POST', $e->getAllowedMethods());
+        }
+    }
+
+    #[Test]
+    public function headRequestPreservesOriginalMethodInRequest(): void
+    {
+        $this->router->get(
+            '/method-check',
+            static fn (ServerRequestInterface $request): ResponseInterface => new Response(
+                200,
+                [],
+                $request->getMethod(),
+            ),
+        );
+
+        $response = $this->router->handle(new ServerRequest('HEAD', '/method-check'));
+
+        // The handler receives the original HEAD method, not the fallback GET
+        self::assertSame('HEAD', (string) $response->getBody());
+    }
+
     // ── addRoute method ─────────────────────────────────────────
 
     #[Test]

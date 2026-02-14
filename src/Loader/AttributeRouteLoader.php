@@ -119,6 +119,7 @@ final class AttributeRouteLoader
      * Shared implementation used by both {@see loadFromClass} and
      * {@see loadFromDirectory} to avoid creating duplicate ReflectionClass instances.
      *
+     * @param \ReflectionClass<object> $reflection
      * @return list<Route>
      */
     private function loadFromReflection(\ReflectionClass $reflection): array
@@ -170,6 +171,8 @@ final class AttributeRouteLoader
 
     /**
      * Check whether a class or any of its public methods carry a `#[Route]` attribute.
+     *
+     * @param \ReflectionClass<object> $reflection
      */
     private function hasRouteAttributes(\ReflectionClass $reflection): bool
     {

@@ -356,8 +356,14 @@ final class Router implements RequestHandlerInterface
 
     private function buildPath(string $path): string
     {
+        // Fast path: no group prefix — skip regex normalisation entirely.
+        if ($this->groupPrefix === '') {
+            return '/' . ltrim($path, '/');
+        }
+
         $full = $this->groupPrefix . '/' . ltrim($path, '/');
         $normalised = preg_replace('#/{2,}#', '/', $full) ?? $full;
+
         return '/' . ltrim($normalised, '/');
     }
 }

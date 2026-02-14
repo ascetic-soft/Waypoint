@@ -177,10 +177,41 @@ final class RouteCollection
     /**
      * Match the given HTTP method and URI against the stored routes.
      *
+     * Implements automatic HEAD→GET fallback per RFC 7231 §4.3.2:
+     * if no route explicitly handles HEAD but a GET route exists for the
+     * same URI, the GET route is returned.
+     *
      * @throws RouteNotFoundException      When no route pattern matches the URI.
      * @throws MethodNotAllowedException   When the URI matches but the method is not allowed.
      */
     public function match(string $method, string $uri): RouteMatchResult
+    {
+        $method = strtoupper($method);
+
+        try {
+            return $this->performMatch($method, $uri);
+        } catch (MethodNotAllowedException $e) {
+            // RFC 7231 §4.3.2: HEAD must be handled identically to GET
+            // (without the response body).  When no explicit HEAD route
+            // exists but a GET route matches, fall back to GET.
+            if ($method === 'HEAD' && \in_array('GET', $e->getAllowedMethods(), true)) {
+                return $this->performMatch('GET', $uri);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Internal matching dispatcher — delegates to the appropriate matching
+     * strategy (Phase 3 compiled matcher, Phase 2 compiled data, or Phase 1 trie).
+     *
+     * The $method parameter MUST already be upper-case.
+     *
+     * @throws RouteNotFoundException      When no route pattern matches the URI.
+     * @throws MethodNotAllowedException   When the URI matches but the method is not allowed.
+     */
+    private function performMatch(string $method, string $uri): RouteMatchResult
     {
         // Fast path: compiled PHP matcher (Phase 3).
         if ($this->compiledMatcher !== null) {
@@ -200,8 +231,6 @@ final class RouteCollection
             // @codeCoverageIgnoreEnd
         }
 
-        $method = strtoupper($method);
-
         // 0. Static route hash table — O(1) lookup for parameter-less routes.
         $key = $method . ':' . $uri;
         if (isset($this->staticTable[$key])) {
@@ -211,7 +240,9 @@ final class RouteCollection
         $allowedMethods = [];
 
         // 1. Try the prefix-tree (covers the majority of routes).
-        $segments = RouteTrie::splitUri($uri);
+        // Inlined RouteTrie::splitUri() to avoid function-call overhead on every request.
+        $trimmed = ltrim($uri, '/');
+        $segments = $trimmed === '' ? [] : explode('/', $trimmed);
         $result = $this->trie->match($method, $segments, 0, [], $allowedMethods);
 
         if ($result !== null) {
@@ -413,8 +444,6 @@ final class RouteCollection
     {
         \assert($this->compiledMatcher !== null);
 
-        $method = strtoupper($method);
-
         // 1. Static route hash table — O(1) match expression.
         $result = $this->compiledMatcher->matchStatic($method, $uri);
 
@@ -500,8 +529,6 @@ final class RouteCollection
     {
         \assert($this->compiledData !== null);
 
-        $method = strtoupper($method);
-
         // 1. Static route hash table — O(1) lookup.
         $key = $method . ':' . $uri;
         if (isset($this->compiledData['staticTable'][$key])) {
@@ -514,7 +541,9 @@ final class RouteCollection
         }
 
         // 2. Array-based trie matching.
-        $segments = RouteTrie::splitUri($uri);
+        // Inlined RouteTrie::splitUri() to avoid function-call overhead on every request.
+        $trimmed = ltrim($uri, '/');
+        $segments = $trimmed === '' ? [] : explode('/', $trimmed);
         $allowedMethods = [];
 
         $result = RouteTrie::matchArray(

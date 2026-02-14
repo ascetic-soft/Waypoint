@@ -793,6 +793,180 @@ final class RouteCollectionTest extends TestCase
         self::assertSame('docs', $result->route->getName());
     }
 
+    // ── HEAD method automatic fallback to GET (RFC 7231 §4.3.2) ──
+
+    #[Test]
+    public function headMatchesStaticGetRoute(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+
+        $result = $collection->match('HEAD', '/about');
+
+        self::assertSame('/about', $result->route->getPattern());
+        self::assertSame([], $result->parameters);
+    }
+
+    #[Test]
+    public function headMatchesDynamicGetRoute(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/{id:\d+}', ['GET'], ['C', 'm']));
+
+        $result = $collection->match('HEAD', '/users/42');
+
+        self::assertSame(['id' => '42'], $result->parameters);
+    }
+
+    #[Test]
+    public function headMatchesFallbackGetRoute(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']));
+
+        $result = $collection->match('HEAD', '/files/prefix-hello.txt');
+
+        self::assertSame(['name' => 'hello'], $result->parameters);
+    }
+
+    #[Test]
+    public function headPrefersExplicitHeadRouteOverGetFallback(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/info', ['HEAD'], ['C', 'headHandler'], name: 'head'));
+        $collection->add(new Route('/info', ['GET'], ['C', 'getHandler'], name: 'get'));
+
+        $result = $collection->match('HEAD', '/info');
+
+        self::assertSame('head', $result->route->getName());
+    }
+
+    #[Test]
+    public function headThrows405WhenOnlyPostRouteExists(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/items', ['POST'], ['C', 'm']));
+
+        try {
+            $collection->match('HEAD', '/items');
+            self::fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            self::assertSame(405, $e->getCode());
+            self::assertContains('POST', $e->getAllowedMethods());
+            self::assertNotContains('GET', $e->getAllowedMethods());
+        }
+    }
+
+    #[Test]
+    public function headThrows404WhenNoRouteMatches(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/about', ['GET'], ['C', 'm']));
+
+        $this->expectException(RouteNotFoundException::class);
+
+        $collection->match('HEAD', '/nonexistent');
+    }
+
+    #[Test]
+    public function headIsCaseInsensitive(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/test', ['GET'], ['C', 'm']));
+
+        $result = $collection->match('head', '/test');
+
+        self::assertSame('/test', $result->route->getPattern());
+    }
+
+    // ── HEAD fallback: Phase 2 compiled raw ─────────────────────
+
+    #[Test]
+    public function headMatchesStaticGetRoutePhase2(): void
+    {
+        $cacheData = $this->buildPhase2Data();
+        $collection = RouteCollection::fromCompiledRaw($cacheData);
+
+        $result = $collection->match('HEAD', '/about');
+
+        self::assertSame('/about', $result->route->getPattern());
+    }
+
+    #[Test]
+    public function headMatchesDynamicGetRoutePhase2(): void
+    {
+        $cacheData = $this->buildPhase2Data();
+        $collection = RouteCollection::fromCompiledRaw($cacheData);
+
+        $result = $collection->match('HEAD', '/users/42');
+
+        self::assertSame(['id' => '42'], $result->parameters);
+    }
+
+    #[Test]
+    public function headMatchesFallbackGetRoutePhase2(): void
+    {
+        $cacheData = $this->buildPhase2DataWithFallback();
+        $collection = RouteCollection::fromCompiledRaw($cacheData);
+
+        $result = $collection->match('HEAD', '/files/prefix-hello.txt');
+
+        self::assertSame(['name' => 'hello'], $result->parameters);
+    }
+
+    // ── HEAD fallback: Phase 3 compiled matcher ─────────────────
+
+    #[Test]
+    public function headMatchesStaticGetRoutePhase3(): void
+    {
+        $collection = $this->buildPhase3Collection();
+
+        $result = $collection->match('HEAD', '/about');
+
+        self::assertSame('/about', $result->route->getPattern());
+    }
+
+    #[Test]
+    public function headMatchesDynamicGetRoutePhase3(): void
+    {
+        $collection = $this->buildPhase3Collection();
+
+        $result = $collection->match('HEAD', '/users/42');
+
+        self::assertSame(['id' => '42'], $result->parameters);
+    }
+
+    #[Test]
+    public function headMatchesFallbackGetRoutePhase3(): void
+    {
+        $source = new RouteCollection();
+        $source->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+        $source->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'files'));
+
+        $collection = $this->compileAndLoadMatcher($source);
+
+        $result = $collection->match('HEAD', '/files/prefix-doc.txt');
+
+        self::assertSame(['name' => 'doc'], $result->parameters);
+    }
+
+    #[Test]
+    public function headThrows405WhenOnlyPostRouteExistsPhase3(): void
+    {
+        $source = new RouteCollection();
+        $source->add(new Route('/items', ['POST'], ['C', 'm'], name: 'items'));
+
+        $collection = $this->compileAndLoadMatcher($source);
+
+        try {
+            $collection->match('HEAD', '/items');
+            self::fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            self::assertContains('POST', $e->getAllowedMethods());
+            self::assertNotContains('GET', $e->getAllowedMethods());
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
 
     /**
