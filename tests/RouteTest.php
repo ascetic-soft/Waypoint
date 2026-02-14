@@ -204,14 +204,16 @@ final class RouteTest extends TestCase
     // ── allowsMethod ─────────────────────────────────────────────
 
     #[Test]
-    public function allowsMethodIsCaseInsensitive(): void
+    public function allowsMethodUsesHashMapLookup(): void
     {
         $route = new Route('/test', ['GET', 'POST'], ['C', 'm']);
 
         self::assertTrue($route->allowsMethod('GET'));
-        self::assertTrue($route->allowsMethod('get'));
-        self::assertTrue($route->allowsMethod('Post'));
+        self::assertTrue($route->allowsMethod('POST'));
         self::assertFalse($route->allowsMethod('DELETE'));
+        // Method must be upper-case — lower/mixed case is not matched.
+        self::assertFalse($route->allowsMethod('get'));
+        self::assertFalse($route->allowsMethod('Post'));
     }
 
     // ── Serialisation round-trip ─────────────────────────────────

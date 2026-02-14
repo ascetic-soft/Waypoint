@@ -35,11 +35,42 @@ final class RouteCollection
     /** @var list<Route> Routes that cannot be represented in the trie. */
     private array $fallbackRoutes = [];
 
+    /**
+     * Fallback routes grouped by first URI segment for prefix-based filtering.
+     *
+     * Routes whose first segment is a parameter placeholder are stored under
+     * the '*' key (catch-all).  Built alongside {@see $fallbackRoutes}.
+     *
+     * @var array<string, list<array{int, Route}>>
+     */
+    private array $fallbackRouteMap = [];
+
     /** Whether the trie has been built from the current route set. */
     private bool $trieBuilt = false;
 
+    /**
+     * Static route hash table for O(1) lookup in non-compiled mode.
+     *
+     * Keys are "METHOD:/uri" for routes that have no parameter placeholders.
+     * Populated during {@see buildTrie()} or {@see fromCompiled()}.
+     *
+     * @var array<string, Route>
+     */
+    private array $staticTable = [];
+
     /** @var array<string, Route>|null Lazy name-to-route index for reverse routing. */
     private ?array $nameIndex = null;
+
+    /**
+     * Lightweight name-to-index map for Phase 2 compiled data.
+     *
+     * Maps route names to their indices in compiledData['routes'],
+     * avoiding eager Route object construction.  Individual routes
+     * are materialised on demand via {@see getCachedCompiledRoute()}.
+     *
+     * @var array<string, int>|null
+     */
+    private ?array $compiledNameMap = null;
 
     /**
      * Raw compiled cache data — Phase 2 format (null when not loaded from Phase 2 cache).
@@ -55,6 +86,23 @@ final class RouteCollection
      * Only the matched route is instantiated as a {@see Route} object.
      */
     private ?CompiledMatcherInterface $compiledMatcher = null;
+
+    /** @var array<int, Route> Lazily hydrated route cache keyed by compiled route index. */
+    private array $routeCache = [];
+
+    /**
+     * Lazy fallback route map for Phase 2 compiled data.
+     *
+     * @var array<string, list<array{int, int}>>|null
+     */
+    private ?array $compiledFallbackMap = null;
+
+    /**
+     * Lazy fallback route map for Phase 3 compiled matcher.
+     *
+     * @var array<string, list<array{int, int}>>|null
+     */
+    private ?array $matcherFallbackMap = null;
 
     /**
      * Create a collection from pre-compiled cache data.
@@ -74,6 +122,8 @@ final class RouteCollection
         $collection->trie = $trie;
         $collection->fallbackRoutes = $fallbackRoutes;
         $collection->trieBuilt = true;
+        $collection->populateStaticTable();
+        $collection->buildFallbackRouteMap();
 
         return $collection;
     }
@@ -118,6 +168,10 @@ final class RouteCollection
         $this->sorted = false;
         $this->trieBuilt = false;
         $this->nameIndex = null;
+        $this->compiledNameMap = null;
+        $this->routeCache = [];
+        $this->staticTable = [];
+        $this->fallbackRouteMap = [];
     }
 
     /**
@@ -147,6 +201,13 @@ final class RouteCollection
         }
 
         $method = strtoupper($method);
+
+        // 0. Static route hash table — O(1) lookup for parameter-less routes.
+        $key = $method . ':' . $uri;
+        if (isset($this->staticTable[$key])) {
+            return new RouteMatchResult($this->staticTable[$key], []);
+        }
+
         $allowedMethods = [];
 
         // 1. Try the prefix-tree (covers the majority of routes).
@@ -157,8 +218,14 @@ final class RouteCollection
             return new RouteMatchResult($result['route'], $result['params']);
         }
 
-        // 2. Fallback: linear scan for non-trie-compatible routes.
-        foreach ($this->fallbackRoutes as $route) {
+        // 2. Fallback: prefix-grouped scan for non-trie-compatible routes.
+        $firstSeg = $segments[0] ?? '';
+        $candidates = self::mergeFallbackGroups(
+            $this->fallbackRouteMap[$firstSeg] ?? [],
+            $this->fallbackRouteMap['*'] ?? [],
+        );
+
+        foreach ($candidates as [, $route]) {
             $params = $route->match($uri);
 
             if ($params === null) {
@@ -217,10 +284,14 @@ final class RouteCollection
         }
 
         // Fast path: search raw compiled data without full hydration.
+        // Uses a lightweight name → index map; the Route object is
+        // materialised only for the requested name.
         if ($this->compiledData !== null && $this->nameIndex === null) {
-            $this->buildNameIndexFromCompiled();
+            $this->buildCompiledNameMap();
 
-            return $this->nameIndex[$name] ?? null;
+            $idx = $this->compiledNameMap[$name] ?? null;
+
+            return $idx !== null ? $this->getCachedCompiledRoute($idx) : null;
         }
 
         $this->buildNameIndex();
@@ -243,8 +314,16 @@ final class RouteCollection
 
         $this->trie = new RouteTrie();
         $this->fallbackRoutes = [];
+        $this->staticTable = [];
 
         foreach ($this->routes as $route) {
+            // Populate static hash table for parameter-less routes (O(1) lookup).
+            if (!str_contains($route->getPattern(), '{')) {
+                foreach ($route->getMethods() as $m) {
+                    $this->staticTable[$m . ':' . $route->getPattern()] ??= $route;
+                }
+            }
+
             if (RouteTrie::isCompatible($route->getPattern())) {
                 $segments = RouteTrie::parsePattern($route->getPattern());
                 $this->trie->insert($route, $segments);
@@ -253,7 +332,27 @@ final class RouteCollection
             }
         }
 
+        $this->buildFallbackRouteMap();
         $this->trieBuilt = true;
+    }
+
+    /**
+     * Populate the static route hash table from the current route set.
+     *
+     * Used by {@see fromCompiled()} where the trie is already built and
+     * {@see buildTrie()} is not called.
+     */
+    private function populateStaticTable(): void
+    {
+        $this->staticTable = [];
+
+        foreach ($this->routes as $route) {
+            if (!str_contains($route->getPattern(), '{')) {
+                foreach ($route->getMethods() as $m) {
+                    $this->staticTable[$m . ':' . $route->getPattern()] ??= $route;
+                }
+            }
+        }
     }
 
     /**
@@ -323,28 +422,50 @@ final class RouteCollection
             [$idx, $params] = $result;
 
             return new RouteMatchResult(
-                Route::fromCompactArray($this->compiledMatcher->getRoute($idx)),
+                $this->getCachedCompactRoute($idx),
                 $params,
             );
         }
 
-        // 2. Dynamic trie — generated segment-by-segment dispatch.
+        // Early 405: collect static allowed methods before the expensive trie walk.
+        // If the URI is a "static-only" route (no parameterised trie route or
+        // fallback route can match it), we can throw 405 immediately.
         $allowedMethods = [];
+        $staticAllowed = $this->compiledMatcher->staticMethods($uri);
+
+        if ($staticAllowed !== []) {
+            if ($this->compiledMatcher->isStaticOnly($uri)) {
+                throw new MethodNotAllowedException($staticAllowed, $method, $uri);
+            }
+
+            // Pre-populate allowed methods; the trie walk may add more.
+            foreach ($staticAllowed as $m) {
+                $allowedMethods[$m] = true;
+            }
+        }
+
+        // 2. Dynamic trie — generated segment-by-segment dispatch.
         $result = $this->compiledMatcher->matchDynamic($method, $uri, $allowedMethods);
 
         if ($result !== null) {
             [$idx, $params] = $result;
 
             return new RouteMatchResult(
-                Route::fromCompactArray($this->compiledMatcher->getRoute($idx)),
+                $this->getCachedCompactRoute($idx),
                 $params,
             );
         }
 
-        // 3. Fallback routes (non-trie-compatible).
-        foreach ($this->compiledMatcher->getFallbackIndices() as $idx) {
-            $routeData = $this->compiledMatcher->getRoute($idx);
-            $route = Route::fromCompactArray($routeData);
+        // 3. Fallback routes (non-trie-compatible, prefix-grouped).
+        $firstSeg = self::uriFirstSegment($uri);
+        $fMap = $this->getMatcherFallbackMap();
+        $fCandidates = self::mergeFallbackGroups(
+            $fMap[$firstSeg] ?? [],
+            $fMap['*'] ?? [],
+        );
+
+        foreach ($fCandidates as [, $idx]) {
+            $route = $this->getCachedCompactRoute($idx);
             $params = $route->match($uri);
 
             if ($params === null) {
@@ -358,12 +479,6 @@ final class RouteCollection
             foreach ($route->getMethods() as $m) {
                 $allowedMethods[$m] = true;
             }
-        }
-
-        // 4. Collect allowed methods from static routes (for 405).
-        $staticAllowed = $this->compiledMatcher->staticMethods($uri);
-        foreach ($staticAllowed as $m) {
-            $allowedMethods[$m] = true;
         }
 
         if ($allowedMethods !== []) {
@@ -391,11 +506,9 @@ final class RouteCollection
         $key = $method . ':' . $uri;
         if (isset($this->compiledData['staticTable'][$key])) {
             $idx = $this->compiledData['staticTable'][$key];
-            /** @var RouteDataArray $routeEntry */
-            $routeEntry = $this->compiledData['routes'][$idx];
 
             return new RouteMatchResult(
-                Route::fromArray($routeEntry),
+                $this->getCachedCompiledRoute($idx),
                 [],
             );
         }
@@ -415,20 +528,22 @@ final class RouteCollection
         );
 
         if ($result !== null) {
-            /** @var RouteDataArray $routeEntry */
-            $routeEntry = $this->compiledData['routes'][$result['index']];
-
             return new RouteMatchResult(
-                Route::fromArray($routeEntry),
+                $this->getCachedCompiledRoute($result['index']),
                 $result['params'],
             );
         }
 
-        // 3. Fallback routes (non-trie-compatible).
-        foreach ($this->compiledData['fallback'] as $idx) {
-            /** @var RouteDataArray $routeData */
-            $routeData = $this->compiledData['routes'][$idx];
-            $route = Route::fromArray($routeData);
+        // 3. Fallback routes (non-trie-compatible, prefix-grouped).
+        $firstSeg = $segments[0] ?? '';
+        $fMap = $this->getCompiledFallbackMap();
+        $fCandidates = self::mergeFallbackGroups(
+            $fMap[$firstSeg] ?? [],
+            $fMap['*'] ?? [],
+        );
+
+        foreach ($fCandidates as [, $idx]) {
+            $route = $this->getCachedCompiledRoute($idx);
             $params = $route->match($uri);
 
             if ($params === null) {
@@ -452,19 +567,26 @@ final class RouteCollection
     }
 
     /**
-     * Build the name index directly from compiled data without full hydration.
+     * Build the lightweight name → index map from compiled data.
+     *
+     * Only stores integer indices — no Route objects are created.
+     * Individual routes are materialised on demand by {@see findByName()}.
      */
-    private function buildNameIndexFromCompiled(): void
+    private function buildCompiledNameMap(): void
     {
+        if ($this->compiledNameMap !== null) {
+            return;
+        }
+
         \assert($this->compiledData !== null);
 
-        $this->nameIndex = [];
+        $this->compiledNameMap = [];
 
-        foreach ($this->compiledData['routes'] as $routeData) {
+        foreach ($this->compiledData['routes'] as $idx => $routeData) {
             /** @var RouteDataArray $routeData */
             $name = $routeData['name'] ?? '';
             if ($name !== '') {
-                $this->nameIndex[$name] = Route::fromArray($routeData);
+                $this->compiledNameMap[$name] = $idx;
             }
         }
     }
@@ -478,10 +600,11 @@ final class RouteCollection
         if ($this->compiledMatcher !== null) {
             $count = $this->compiledMatcher->getRouteCount();
             for ($i = 0; $i < $count; $i++) {
-                $this->routes[] = Route::fromCompactArray($this->compiledMatcher->getRoute($i));
+                $this->routes[] = $this->getCachedCompactRoute($i);
             }
 
             $this->compiledMatcher = null;
+            $this->routeCache = [];
             $this->sorted = true;
             $this->trieBuilt = false;
 
@@ -490,14 +613,190 @@ final class RouteCollection
 
         // Hydrate from compiled data (Phase 2).
         if ($this->compiledData !== null) {
-            foreach ($this->compiledData['routes'] as $routeData) {
-                /** @var RouteDataArray $routeData */
-                $this->routes[] = Route::fromArray($routeData);
+            $count = \count($this->compiledData['routes']);
+            for ($i = 0; $i < $count; $i++) {
+                $this->routes[] = $this->getCachedCompiledRoute($i);
             }
 
             $this->compiledData = null;
+            $this->routeCache = [];
             $this->sorted = true;
             $this->trieBuilt = false;
         }
+    }
+
+    /**
+     * Get a cached Route instance by index from Phase 3 compact compiled matcher data.
+     */
+    private function getCachedCompactRoute(int $idx): Route
+    {
+        \assert($this->compiledMatcher !== null);
+
+        return $this->routeCache[$idx] ??= Route::fromCompactArray($this->compiledMatcher->getRoute($idx));
+    }
+
+    /**
+     * Get a cached Route instance by index from Phase 2 compiled route arrays.
+     */
+    private function getCachedCompiledRoute(int $idx): Route
+    {
+        \assert($this->compiledData !== null);
+        /** @var RouteDataArray $routeData */
+        $routeData = $this->compiledData['routes'][$idx];
+
+        return $this->routeCache[$idx] ??= Route::fromArray($routeData);
+    }
+
+    // ── Fallback prefix grouping ────────────────────────────────
+
+    /**
+     * Build the fallback route map from the current fallback route list.
+     *
+     * Groups routes by their first static URI segment for prefix-based
+     * filtering at match time.  Routes whose first segment contains a
+     * parameter placeholder are stored under the '*' key (catch-all).
+     */
+    private function buildFallbackRouteMap(): void
+    {
+        $this->fallbackRouteMap = [];
+
+        foreach ($this->fallbackRoutes as $seq => $route) {
+            $key = self::fallbackPrefix($route->getPattern());
+            $this->fallbackRouteMap[$key][] = [$seq, $route];
+        }
+    }
+
+    /**
+     * Get the fallback route map for Phase 2 compiled data, building it lazily.
+     *
+     * @return array<string, list<array{int, int}>>
+     */
+    private function getCompiledFallbackMap(): array
+    {
+        if ($this->compiledFallbackMap !== null) {
+            return $this->compiledFallbackMap;
+        }
+
+        \assert($this->compiledData !== null);
+
+        $this->compiledFallbackMap = [];
+
+        foreach ($this->compiledData['fallback'] as $seq => $idx) {
+            /** @var string $pattern */
+            $pattern = $this->compiledData['routes'][$idx]['path'];
+            $key = self::fallbackPrefix($pattern);
+            $this->compiledFallbackMap[$key][] = [$seq, $idx];
+        }
+
+        return $this->compiledFallbackMap;
+    }
+
+    /**
+     * Get the fallback route map for Phase 3 compiled matcher, building it lazily.
+     *
+     * @return array<string, list<array{int, int}>>
+     */
+    private function getMatcherFallbackMap(): array
+    {
+        if ($this->matcherFallbackMap !== null) {
+            return $this->matcherFallbackMap;
+        }
+
+        \assert($this->compiledMatcher !== null);
+
+        $this->matcherFallbackMap = [];
+
+        foreach ($this->compiledMatcher->getFallbackIndices() as $seq => $idx) {
+            $routeData = $this->compiledMatcher->getRoute($idx);
+            $key = self::fallbackPrefix($routeData['p']);
+            $this->matcherFallbackMap[$key][] = [$seq, $idx];
+        }
+
+        return $this->matcherFallbackMap;
+    }
+
+    /**
+     * Extract the first static URI segment from a route pattern.
+     *
+     * Returns '*' when the first segment contains a parameter placeholder
+     * (the prefix is not deterministic and must be checked for all URIs).
+     */
+    private static function fallbackPrefix(string $pattern): string
+    {
+        $path = ltrim($pattern, '/');
+
+        if ($path === '') {
+            return '';
+        }
+
+        $slash = strpos($path, '/');
+        $segment = $slash !== false ? substr($path, 0, $slash) : $path;
+
+        return str_contains($segment, '{') ? '*' : $segment;
+    }
+
+    /**
+     * Extract the first segment from a request URI.
+     */
+    private static function uriFirstSegment(string $uri): string
+    {
+        $path = ltrim($uri, '/');
+
+        if ($path === '') {
+            return '';
+        }
+
+        $slash = strpos($path, '/');
+
+        return $slash !== false ? substr($path, 0, $slash) : $path;
+    }
+
+    /**
+     * Merge two sequence-ordered fallback groups into a single list
+     * maintaining global priority order.
+     *
+     * Each entry is `[sequenceNumber, payload]` where both input arrays
+     * are sorted by sequence number ascending.  The merge is O(|A|+|B|).
+     *
+     * @template T
+     *
+     * @param list<array{int, T}> $a
+     * @param list<array{int, T}> $b
+     *
+     * @return list<array{int, T}>
+     */
+    private static function mergeFallbackGroups(array $a, array $b): array
+    {
+        if ($b === []) {
+            return $a;
+        }
+
+        if ($a === []) {
+            return $b;
+        }
+
+        $result = [];
+        $i = 0;
+        $j = 0;
+        $na = \count($a);
+        $nb = \count($b);
+
+        while ($i < $na && $j < $nb) {
+            if ($a[$i][0] <= $b[$j][0]) {
+                $result[] = $a[$i++];
+            } else {
+                $result[] = $b[$j++];
+            }
+        }
+
+        while ($i < $na) {
+            $result[] = $a[$i++];
+        }
+
+        while ($j < $nb) {
+            $result[] = $b[$j++];
+        }
+
+        return $result;
     }
 }

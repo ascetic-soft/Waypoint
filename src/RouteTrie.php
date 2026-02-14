@@ -129,7 +129,7 @@ final class RouteTrie
         if ($depth === \count($segments)) {
             foreach ($this->routes as $route) {
                 if ($route->allowsMethod($method)) {
-                    return compact('route', 'params');
+                    return ['route' => $route, 'params' => $params];
                 }
 
                 // URI matched but method did not — collect for 405.

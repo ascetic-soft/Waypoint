@@ -371,6 +371,37 @@ final class RouteCollectionTest extends TestCase
     }
 
     #[Test]
+    public function fromCompiledRawFindByNameIsLazyAndDoesNotHydrateAllRoutes(): void
+    {
+        $cacheData = $this->buildPhase2Data();
+        $collection = RouteCollection::fromCompiledRaw($cacheData);
+
+        // Look up a single named route.
+        $route = $collection->findByName('about');
+        self::assertNotNull($route);
+        self::assertSame('/about', $route->getPattern());
+
+        // The routeCache (via Reflection) should contain only the one
+        // materialised route, not all named routes.
+        $ref = new \ReflectionProperty($collection, 'routeCache');
+        $cache = $ref->getValue($collection);
+
+        self::assertCount(1, $cache, 'Only the requested route should be materialised');
+    }
+
+    #[Test]
+    public function fromCompiledRawFindByNameCachesAcrossCalls(): void
+    {
+        $cacheData = $this->buildPhase2Data();
+        $collection = RouteCollection::fromCompiledRaw($cacheData);
+
+        $first = $collection->findByName('about');
+        $second = $collection->findByName('about');
+
+        self::assertSame($first, $second, 'Repeated lookups should return the same Route instance');
+    }
+
+    #[Test]
     public function fromCompiledRawAllHydratesRoutes(): void
     {
         $cacheData = $this->buildPhase2Data();
@@ -607,6 +638,159 @@ final class RouteCollectionTest extends TestCase
             self::assertContains('GET', $e->getAllowedMethods());
             self::assertContains('PUT', $e->getAllowedMethods());
         }
+    }
+
+    // ── Fallback prefix grouping ──────────────────────────────────
+
+    #[Test]
+    public function fallbackGroupingMatchesRoutesByFirstSegment(): void
+    {
+        $collection = new RouteCollection();
+        // Two non-trie-compatible routes under different prefixes.
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'files'));
+        $collection->add(new Route('/docs/page-{id}.html', ['GET'], ['C', 'm'], name: 'docs'));
+
+        $result = $collection->match('GET', '/files/prefix-hello.txt');
+        self::assertSame('files', $result->route->getName());
+        self::assertSame(['name' => 'hello'], $result->parameters);
+
+        $result = $collection->match('GET', '/docs/page-42.html');
+        self::assertSame('docs', $result->route->getName());
+        self::assertSame(['id' => '42'], $result->parameters);
+    }
+
+    #[Test]
+    public function fallbackGroupingDoesNotMatchWrongPrefix(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']));
+
+        $this->expectException(RouteNotFoundException::class);
+        $collection->match('GET', '/docs/prefix-hello.txt');
+    }
+
+    #[Test]
+    public function fallbackGroupingCatchAllRouteMatchesAnyPrefix(): void
+    {
+        $collection = new RouteCollection();
+        // First segment is a parameter → catch-all group.
+        $collection->add(new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'm'], name: 'catchall'));
+
+        $result = $collection->match('GET', '/en/page-42.html');
+        self::assertSame('catchall', $result->route->getName());
+
+        $result = $collection->match('GET', '/fr/page-99.html');
+        self::assertSame('catchall', $result->route->getName());
+    }
+
+    #[Test]
+    public function fallbackGroupingPreservesGlobalPriorityAcrossGroups(): void
+    {
+        $collection = new RouteCollection();
+        // Specific prefix, low priority.
+        $collection->add(new Route('/en/page-{id}.html', ['GET'], ['C', 'specific'], name: 'specific', priority: 0));
+        // Catch-all (dynamic first segment), high priority.
+        $collection->add(new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 10));
+
+        // Both match /en/page-42.html, but high-priority catch-all should win.
+        $result = $collection->match('GET', '/en/page-42.html');
+        self::assertSame('catchall', $result->route->getName());
+    }
+
+    #[Test]
+    public function fallbackGroupingPreservesGlobalPrioritySpecificWins(): void
+    {
+        $collection = new RouteCollection();
+        // Specific prefix, high priority.
+        $collection->add(new Route('/en/page-{id}.html', ['GET'], ['C', 'specific'], name: 'specific', priority: 10));
+        // Catch-all (dynamic first segment), low priority.
+        $collection->add(new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 0));
+
+        // Both match, but higher-priority specific should win.
+        $result = $collection->match('GET', '/en/page-42.html');
+        self::assertSame('specific', $result->route->getName());
+
+        // Only catch-all matches for other prefixes.
+        $result = $collection->match('GET', '/fr/page-42.html');
+        self::assertSame('catchall', $result->route->getName());
+    }
+
+    #[Test]
+    public function fallbackGroupingMethodNotAllowedAcrossGroups(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/en/page-{id}.html', ['GET'], ['C', 'm'], name: 'specific'));
+        $collection->add(new Route('/{lang}/page-{id}.html', ['POST'], ['C', 'm'], name: 'catchall'));
+
+        try {
+            $collection->match('DELETE', '/en/page-42.html');
+            self::fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            // Both routes match the URI — both methods should be collected.
+            self::assertContains('GET', $e->getAllowedMethods());
+            self::assertContains('POST', $e->getAllowedMethods());
+        }
+    }
+
+    #[Test]
+    public function fallbackGroupingPhase2PreservesGlobalPriority(): void
+    {
+        $source = new RouteCollection();
+        $source->add(new Route('/en/page-{id}.html', ['GET'], ['C', 'specific'], name: 'specific', priority: 0));
+        $source->add(new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 10));
+
+        $cacheData = $this->buildPhase2DataFromCollection($source);
+        $collection = RouteCollection::fromCompiledRaw($cacheData);
+
+        $result = $collection->match('GET', '/en/page-42.html');
+        self::assertSame('catchall', $result->route->getName());
+    }
+
+    #[Test]
+    public function fallbackGroupingPhase3PreservesGlobalPriority(): void
+    {
+        $source = new RouteCollection();
+        $source->add(new Route('/en/page-{id}.html', ['GET'], ['C', 'specific'], name: 'specific', priority: 0));
+        $source->add(new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 10));
+
+        $collection = $this->compileAndLoadMatcher($source);
+
+        $result = $collection->match('GET', '/en/page-42.html');
+        self::assertSame('catchall', $result->route->getName());
+    }
+
+    #[Test]
+    public function fallbackGroupingPhase3MatchesByPrefix(): void
+    {
+        $source = new RouteCollection();
+        $source->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'files'));
+        $source->add(new Route('/docs/page-{id}.html', ['GET'], ['C', 'm'], name: 'docs'));
+
+        $collection = $this->compileAndLoadMatcher($source);
+
+        $result = $collection->match('GET', '/files/prefix-hello.txt');
+        self::assertSame('files', $result->route->getName());
+
+        $result = $collection->match('GET', '/docs/page-42.html');
+        self::assertSame('docs', $result->route->getName());
+    }
+
+    #[Test]
+    public function fallbackGroupingFromCompiledMatchesByPrefix(): void
+    {
+        $routes = [
+            new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'files'),
+            new Route('/docs/page-{id}.html', ['GET'], ['C', 'm'], name: 'docs'),
+        ];
+
+        $trie = new RouteTrie();
+        $collection = RouteCollection::fromCompiled($routes, $trie, $routes);
+
+        $result = $collection->match('GET', '/files/prefix-hello.txt');
+        self::assertSame('files', $result->route->getName());
+
+        $result = $collection->match('GET', '/docs/page-42.html');
+        self::assertSame('docs', $result->route->getName());
     }
 
     // ── Helpers ──────────────────────────────────────────────────

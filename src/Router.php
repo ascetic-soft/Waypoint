@@ -162,12 +162,14 @@ final class Router implements RequestHandlerInterface
     /**
      * Scan a directory for controller classes and load their `#[Route]` attributes.
      *
-     * @param string $directory Absolute path to the directory.
-     * @param string $namespace PSR-4 namespace prefix for the directory.
+     * @param string $directory   Absolute path to the directory.
+     * @param string $namespace   PSR-4 namespace prefix for the directory.
+     * @param string $filePattern Glob pattern applied to filenames (e.g. '*Controller.php').
+     *                            Defaults to '*.php' (all PHP files).
      */
-    public function scanDirectory(string $directory, string $namespace): self
+    public function scanDirectory(string $directory, string $namespace, string $filePattern = '*.php'): self
     {
-        foreach ($this->getLoader()->loadFromDirectory($directory, $namespace) as $route) {
+        foreach ($this->getLoader()->loadFromDirectory($directory, $namespace, $filePattern) as $route) {
             $this->routes->add($route);
         }
 

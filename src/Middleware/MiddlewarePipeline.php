@@ -21,6 +21,17 @@ final class MiddlewarePipeline implements RequestHandlerInterface
     private int $index = 0;
 
     /**
+     * Shared cache of resolved middleware instances (class-string → MiddlewareInterface).
+     *
+     * Uses {@see \ArrayObject} so that the reference survives {@see clone}
+     * (shallow copy keeps the same object) and every step in the pipeline
+     * chain benefits from a single container lookup per class-string.
+     *
+     * @var \ArrayObject<string, MiddlewareInterface>
+     */
+    private \ArrayObject $resolvedMiddleware;
+
+    /**
      * @param list<string|MiddlewareInterface> $middlewares  Middleware instances or class-strings resolved via container.
      * @param RequestHandlerInterface          $handler      Fallback handler (e.g. RouteHandler).
      * @param ContainerInterface               $container    PSR-11 container for resolving class-string middleware.
@@ -30,6 +41,7 @@ final class MiddlewarePipeline implements RequestHandlerInterface
         private readonly RequestHandlerInterface $handler,
         private readonly ContainerInterface $container,
     ) {
+        $this->resolvedMiddleware = new \ArrayObject();
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -41,8 +53,12 @@ final class MiddlewarePipeline implements RequestHandlerInterface
         $middleware = $this->middlewares[$this->index];
 
         if (\is_string($middleware)) {
-            /** @var MiddlewareInterface $middleware */
-            $middleware = $this->container->get($middleware);
+            if (!isset($this->resolvedMiddleware[$middleware])) {
+                /** @var MiddlewareInterface $resolved */
+                $resolved = $this->container->get($middleware);
+                $this->resolvedMiddleware[$middleware] = $resolved;
+            }
+            $middleware = $this->resolvedMiddleware[$middleware];
         }
 
         // Advance index for the next call in the chain

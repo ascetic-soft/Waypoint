@@ -44,6 +44,9 @@ final class Route
      */
     private ?array $argPlan = null;
 
+    /** @var array<string, true> Allowed HTTP methods stored as a hash map for O(1) lookup. */
+    private readonly array $methodsMap;
+
     /**
      * @param string               $pattern    Route path pattern (e.g. '/users/{id:\d+}').
      * @param list<string>         $methods    Allowed HTTP methods (upper-case, e.g. ['GET', 'POST']).
@@ -54,12 +57,13 @@ final class Route
      */
     public function __construct(
         private readonly string $pattern,
-        private readonly array $methods,
+        array $methods,
         private readonly array|\Closure $handler,
         private readonly array $middleware = [],
         private readonly string $name = '',
         private readonly int $priority = 0,
     ) {
+        $this->methodsMap = \array_fill_keys($methods, true);
     }
 
     /**
@@ -126,10 +130,13 @@ final class Route
 
     /**
      * Check whether the given HTTP method is allowed for this route.
+     *
+     * The method MUST be upper-case (e.g. 'GET', 'POST').
+     * All internal matching paths normalise the method before calling this.
      */
     public function allowsMethod(string $method): bool
     {
-        return \in_array(strtoupper($method), $this->methods, true);
+        return isset($this->methodsMap[$method]);
     }
 
     // ── Getters ──────────────────────────────────────────────────
@@ -144,7 +151,7 @@ final class Route
      */
     public function getMethods(): array
     {
-        return $this->methods;
+        return \array_keys($this->methodsMap);
     }
 
     /**
@@ -223,7 +230,7 @@ final class Route
 
         $data = [
             'path' => $this->pattern,
-            'methods' => $this->methods,
+            'methods' => \array_keys($this->methodsMap),
             'handler' => $this->handler,
             'middleware' => $this->middleware,
             'name' => $this->name,

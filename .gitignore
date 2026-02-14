@@ -3,3 +3,4 @@
 /.phpunit.cache/
 /.idea/
 /.php-cs-fixer.cache
+/coverage.xml

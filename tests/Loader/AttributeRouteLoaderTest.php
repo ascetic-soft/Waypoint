@@ -99,4 +99,36 @@ final class AttributeRouteLoaderTest extends TestCase
         // Should find routes from TestController and GroupedController
         self::assertGreaterThanOrEqual(8, \count($routes));
     }
+
+    #[Test]
+    public function loadFromDirectoryWithFilePatternFiltersFiles(): void
+    {
+        // Only files matching *Controller.php should be considered
+        $routes = $this->loader->loadFromDirectory(
+            __DIR__ . '/../Fixture',
+            'AsceticSoft\\Waypoint\\Tests\\Fixture',
+            '*Controller.php',
+        );
+
+        // Both TestController and GroupedController match the pattern
+        self::assertGreaterThanOrEqual(8, \count($routes));
+
+        // Verify names from both controllers are present
+        $names = array_map(static fn ($r) => $r->getName(), $routes);
+        self::assertContains('home', $names);           // TestController
+        self::assertContains('users.list', $names);     // GroupedController
+    }
+
+    #[Test]
+    public function loadFromDirectoryWithNonMatchingPatternReturnsEmpty(): void
+    {
+        // A pattern that matches no filenames in the fixture directory
+        $routes = $this->loader->loadFromDirectory(
+            __DIR__ . '/../Fixture',
+            'AsceticSoft\\Waypoint\\Tests\\Fixture',
+            '*Service.php',
+        );
+
+        self::assertCount(0, $routes);
+    }
 }

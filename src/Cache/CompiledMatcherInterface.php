@@ -29,6 +29,15 @@ interface CompiledMatcherInterface
     public function staticMethods(string $uri): array;
 
     /**
+     * Check if a URI can ONLY be matched via the static route table.
+     *
+     * Returns true when no parameterised trie route and no fallback route
+     * can match this URI.  This enables an early 405 response without
+     * traversing the dynamic trie or scanning fallback routes.
+     */
+    public function isStaticOnly(string $uri): bool;
+
+    /**
      * Match a dynamic route — segment-by-segment trie dispatch.
      *
      * @param array<string, true> &$allowedMethods Collected allowed methods (for 405).
