@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **100% line/method/class test coverage** — 7 new tests covering previously uncovered edge cases:
+  - `MiddlewarePipeline`: container returning non-`MiddlewareInterface` instance throws `RuntimeException`.
+  - `AttributeRouteLoader`: directory scan skips classes with PHP attributes but no `#[Route]`.
+  - `RouteCompiler`: static routes overlapping with dynamic or fallback routes are correctly excluded from the static-only optimisation.
+  - `RouteCollection`: Phase 1 fallback candidate skip, Phase 3 static-method pre-population for non-static-only URIs, root URI matching.
+- `NonRouteAttributeClass` test fixture for attribute loader coverage.
+
+### Changed
+
+- Added `@codeCoverageIgnore` for three unreachable/defensive code paths:
+  - `RouteCompiler::hasNoParamChildrenAlongPath()` — segment-not-found guard.
+  - `RouteTrie::isCompatible()` — invalid regex guard.
+  - `RouteCollection::fallbackPrefix()` — empty-pattern guard (root `/` is always trie-compatible).
+
 ## [1.1.3] - 2026-02-14
 
 ### Added

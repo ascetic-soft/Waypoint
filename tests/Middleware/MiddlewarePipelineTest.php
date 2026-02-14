@@ -231,6 +231,26 @@ final class MiddlewarePipelineTest extends TestCase
         self::assertSame('', $response->getHeaderLine('X-Dummy-Middleware'));
     }
 
+    #[Test]
+    public function throwsWhenContainerResolvesNonMiddlewareInstance(): void
+    {
+        $container = new SimpleContainer();
+        $container->set('not_a_middleware', new \stdClass());
+
+        $handler = $this->createFallbackHandler(new Response(200));
+
+        $pipeline = new MiddlewarePipeline(
+            ['not_a_middleware'],
+            $handler,
+            $container,
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('must implement');
+
+        $pipeline->handle(new ServerRequest('GET', '/'));
+    }
+
     private function createFallbackHandler(ResponseInterface $response): RequestHandlerInterface
     {
         return new readonly class ($response) implements RequestHandlerInterface {

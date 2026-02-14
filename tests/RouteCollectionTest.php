@@ -793,6 +793,23 @@ final class RouteCollectionTest extends TestCase
         self::assertSame('docs', $result->route->getName());
     }
 
+    // ── Phase 1 fallback: skip non-matching candidates ──────────
+
+    #[Test]
+    public function fallbackSkipsNonMatchingCandidateInSameGroup(): void
+    {
+        $collection = new RouteCollection();
+        // Two non-trie-compatible routes under the same prefix 'files'.
+        // The first one does NOT match the request URI.
+        $collection->add(new Route('/files/suffix-{name}.doc', ['GET'], ['C', 'm'], name: 'suffix'));
+        // The second one DOES match.
+        $collection->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'prefix'));
+
+        $result = $collection->match('GET', '/files/prefix-hello.txt');
+        self::assertSame('prefix', $result->route->getName());
+        self::assertSame(['name' => 'hello'], $result->parameters);
+    }
+
     // ── HEAD method automatic fallback to GET (RFC 7231 §4.3.2) ──
 
     #[Test]
@@ -965,6 +982,45 @@ final class RouteCollectionTest extends TestCase
             self::assertContains('POST', $e->getAllowedMethods());
             self::assertNotContains('GET', $e->getAllowedMethods());
         }
+    }
+
+    // ── Phase 3: static methods pre-population when not static-only ──
+
+    #[Test]
+    public function fromCompiledMatcherPrePopulatesStaticMethodsWhenNotStaticOnly(): void
+    {
+        $source = new RouteCollection();
+        // Static route for /about (GET).
+        $source->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+        // Dynamic route with param at root level → makes /about NOT static-only.
+        $source->add(new Route('/{page}', ['PUT'], ['C', 'm'], name: 'page'));
+
+        $collection = $this->compileAndLoadMatcher($source);
+
+        try {
+            $collection->match('DELETE', '/about');
+            self::fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            // Both static (GET) and dynamic (PUT) methods should be collected.
+            self::assertContains('GET', $e->getAllowedMethods());
+            self::assertContains('PUT', $e->getAllowedMethods());
+        }
+    }
+
+    // ── Phase 3: root URI triggers uriFirstSegment empty path ──
+
+    #[Test]
+    public function fromCompiledMatcherThrowsNotFoundForRootUri(): void
+    {
+        // Build a Phase 3 collection WITHOUT a root route.
+        $source = new RouteCollection();
+        $source->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+        $source->add(new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'files'));
+
+        $collection = $this->compileAndLoadMatcher($source);
+
+        $this->expectException(RouteNotFoundException::class);
+        $collection->match('GET', '/');
     }
 
     // ── Helpers ──────────────────────────────────────────────────

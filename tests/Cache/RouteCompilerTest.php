@@ -960,6 +960,46 @@ final class RouteCompilerTest extends TestCase
         self::assertSame('int', $paramEntry['cast']);
     }
 
+    // ── computeStaticOnlyUris / hasNoParamChildrenAlongPath coverage ──
+
+    #[Test]
+    public function compileStaticRouteWithOverlappingDynamicIsNotStaticOnly(): void
+    {
+        $collection = new RouteCollection();
+        // Static route.
+        $collection->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
+        // Dynamic route with param child at the same trie level.
+        $collection->add(new Route('/{page}', ['GET'], ['C', 'm'], name: 'page'));
+
+        $compiler = new RouteCompiler();
+        $compiler->compile($collection, $this->cacheFile);
+
+        $matcher = include $this->cacheFile;
+        \assert($matcher instanceof CompiledMatcherInterface);
+
+        // /about should NOT be static-only because /{page} has param children at root.
+        self::assertFalse($matcher->isStaticOnly('/about'));
+    }
+
+    #[Test]
+    public function compileStaticRouteWithMatchingFallbackIsNotStaticOnly(): void
+    {
+        $collection = new RouteCollection();
+        // Static route — the fallback regex below also matches this URI.
+        $collection->add(new Route('/files/readme.txt', ['GET'], ['C', 'm'], name: 'readme'));
+        // Non-trie-compatible fallback route that matches /files/readme.txt (name = 'me').
+        $collection->add(new Route('/files/read{name}.txt', ['GET'], ['C', 'm'], name: 'readfile'));
+
+        $compiler = new RouteCompiler();
+        $compiler->compile($collection, $this->cacheFile);
+
+        $matcher = include $this->cacheFile;
+        \assert($matcher instanceof CompiledMatcherInterface);
+
+        // /files/readme.txt should NOT be static-only because the fallback route matches it.
+        self::assertFalse($matcher->isStaticOnly('/files/readme.txt'));
+    }
+
     #[Test]
     public function compileWithNoParamsHandler(): void
     {

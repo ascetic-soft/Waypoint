@@ -755,7 +755,9 @@ final class RouteCollection
         $path = ltrim($pattern, '/');
 
         if ($path === '') {
+            // @codeCoverageIgnoreStart
             return '';
+            // @codeCoverageIgnoreEnd
         }
 
         $slash = strpos($path, '/');

@@ -441,8 +441,10 @@ final class RouteTrie
 
             // Validate the regex first — avoid @ error suppression overhead.
             if (preg_match($fullRegex, '') === false) {
+                // @codeCoverageIgnoreStart
                 // Invalid regex — treat as incompatible.
                 return false;
+                // @codeCoverageIgnoreEnd
             }
 
             if (preg_match($fullRegex, '/') === 1) {

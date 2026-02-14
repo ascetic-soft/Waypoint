@@ -455,7 +455,9 @@ final class RouteCompiler
             $staticChildren = $node['static'];
 
             if (!isset($staticChildren[$segment])) {
+                // @codeCoverageIgnoreStart
                 return false; // Should not happen for a valid static route.
+                // @codeCoverageIgnoreEnd
             }
 
             $node = $staticChildren[$segment];

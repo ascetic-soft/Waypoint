@@ -131,4 +131,18 @@ final class AttributeRouteLoaderTest extends TestCase
 
         self::assertCount(0, $routes);
     }
+
+    #[Test]
+    public function loadFromDirectorySkipsClassWithNonRouteAttributes(): void
+    {
+        // NonRouteAttributeClass has #[AllowDynamicProperties] but no #[Route].
+        // The loader should skip it (hasRouteAttributes returns false).
+        $routes = $this->loader->loadFromDirectory(
+            __DIR__ . '/../Fixture',
+            'AsceticSoft\\Waypoint\\Tests\\Fixture',
+            'NonRouteAttributeClass.php',
+        );
+
+        self::assertCount(0, $routes);
+    }
 }
