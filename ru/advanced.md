@@ -66,21 +66,27 @@ $url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
 
 Параметры автоматически URL-кодируются. Лишние параметры игнорируются. Недостающие обязательные параметры вызывают `MissingParametersException`.
 
+### Абсолютные URL
+
+Установите базовый URL (схема + хост) для генерации полных URL:
+
+```php
+$router->setBaseUrl('https://example.com');
+
+$url = $router->generate('users.show', ['id' => 42], absolute: true);
+// => https://example.com/users/42
+```
+
+Если `absolute: true` используется без настроенного базового URL, выбрасывается `BaseUrlNotSetException`.
+
 ### Прямое использование UrlGenerator
 
 ```php
 use AsceticSoft\Waypoint\UrlGenerator;
 
-$generator = new UrlGenerator($router->getRouteCollection());
-$url = $generator->generate('users.show', ['id' => 42]);
-```
-
-### Абсолютные URL
-
-```php
-$router->setBaseUrl('https://example.com');
-$url = $router->generate('users.show', ['id' => 42]);
-// => https://example.com/users/42
+$generator = new UrlGenerator($router->getRouteCollection(), 'https://example.com');
+$url = $generator->generate('users.show', ['id' => 42]);               // относительный
+$url = $generator->generate('users.show', ['id' => 42], absolute: true); // абсолютный
 ```
 
 {: .note }
@@ -114,7 +120,7 @@ if (file_exists($cacheFile)) {
 }
 ```
 
-Файл кэша — обычный PHP-массив, который загружается мгновенно через OPcache, минуя Reflection и парсинг атрибутов.
+Компилятор генерирует самодостаточный PHP-класс с match-выражениями и предвычисленными планами разрешения аргументов. Файл загружается через OPcache с нулевыми накладными расходами, минуя Reflection и парсинг атрибутов.
 
 {: .important }
 Не забывайте очищать файл кэша после добавления или изменения маршрутов. Во время разработки пропускайте кэширование.
@@ -164,6 +170,7 @@ Waypoint выбрасывает специфические исключения 
 | `MethodNotAllowedException` | 405 | URI совпал, но HTTP-метод не разрешён |
 | `RouteNameNotFoundException` | — | Маршрут с указанным именем не найден |
 | `MissingParametersException` | — | Не предоставлены обязательные параметры маршрута |
+| `BaseUrlNotSetException` | — | Запрошен абсолютный URL, но базовый URL не настроен |
 
 ```php
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
@@ -178,6 +185,9 @@ try {
     $allowed = implode(', ', $e->getAllowedMethods());
 }
 ```
+
+{: .note }
+**HEAD -> GET fallback:** Согласно RFC 7231 §4.3.2, если маршрут для HEAD не зарегистрирован, но существует маршрут GET для того же URI, автоматически используется маршрут GET. Дополнительная настройка не требуется.
 
 ---
 

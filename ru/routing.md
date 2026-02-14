@@ -33,7 +33,9 @@ $router->get('/users',          [UserController::class, 'list']);
 $router->post('/users',         [UserController::class, 'create']);
 $router->put('/users/{id}',     [UserController::class, 'update']);
 $router->delete('/users/{id}',  [UserController::class, 'destroy']);
-$router->patch('/users/{id}',   [UserController::class, 'patch']);
+
+// Любой другой HTTP-метод (PATCH, OPTIONS и т.д.)
+$router->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PATCH']);
 ```
 
 ### Параметры методов
@@ -116,6 +118,9 @@ $router->loadAttributes(
 
 // Или просканировать директорию
 $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+// С фильтрацией по имени файла
+$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ### Параметры атрибута

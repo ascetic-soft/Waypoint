@@ -118,4 +118,8 @@ composer require ascetic-soft/waypoint
     <h3><a href="{{ '/ru/api-reference.html' | relative_url }}">Справочник API</a></h3>
     <p>Полный справочник по всем публичным классам и методам.</p>
   </div>
+  <div class="grid-item">
+    <h3><a href="{{ '/ru/internals.html' | relative_url }}">Внутреннее устройство</a></h3>
+    <p>Алгоритмы, структуры данных и диаграммы внутренней архитектуры.</p>
+  </div>
 </div>

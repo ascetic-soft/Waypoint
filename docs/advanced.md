@@ -65,21 +65,27 @@ $url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
 
 Parameters are automatically URL-encoded. Extra parameters not in the route pattern are ignored. Missing required parameters throw `MissingParametersException`.
 
+### Absolute URLs
+
+Set a base URL (scheme + host) to generate fully-qualified URLs:
+
+```php
+$router->setBaseUrl('https://example.com');
+
+$url = $router->generate('users.show', ['id' => 42], absolute: true);
+// => https://example.com/users/42
+```
+
+If `absolute: true` is used without a configured base URL, `BaseUrlNotSetException` is thrown.
+
 ### Using UrlGenerator Directly
 
 ```php
 use AsceticSoft\Waypoint\UrlGenerator;
 
-$generator = new UrlGenerator($router->getRouteCollection());
-$url = $generator->generate('users.show', ['id' => 42]);
-```
-
-### Absolute URLs
-
-```php
-$router->setBaseUrl('https://example.com');
-$url = $router->generate('users.show', ['id' => 42]);
-// => https://example.com/users/42
+$generator = new UrlGenerator($router->getRouteCollection(), 'https://example.com');
+$url = $generator->generate('users.show', ['id' => 42]);               // relative
+$url = $generator->generate('users.show', ['id' => 42], absolute: true); // absolute
 ```
 
 {: .note }
@@ -113,7 +119,7 @@ if (file_exists($cacheFile)) {
 }
 ```
 
-The cache file is a plain PHP array that loads instantly through OPcache, bypassing all Reflection and attribute parsing.
+The compiler generates a self-contained PHP class with match expressions and pre-computed argument resolution plans. The resulting file loads through OPcache with zero overhead, bypassing all Reflection and attribute parsing at runtime.
 
 {: .important }
 Remember to clear the cache file after adding or modifying routes. During development, skip caching entirely.
@@ -163,6 +169,7 @@ Waypoint throws specific exceptions for routing failures:
 | `MethodNotAllowedException` | 405 | URI matches but HTTP method is not allowed |
 | `RouteNameNotFoundException` | — | No route with the given name (URL generation) |
 | `MissingParametersException` | — | Required route parameters not provided |
+| `BaseUrlNotSetException` | — | Absolute URL requested but base URL not configured |
 
 ```php
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
@@ -177,6 +184,9 @@ try {
     $allowed = implode(', ', $e->getAllowedMethods());
 }
 ```
+
+{: .note }
+**HEAD → GET fallback:** Per RFC 7231 §4.3.2, if no route explicitly handles HEAD but a GET route matches the same URI, the GET route is used automatically. No additional configuration is required.
 
 ---
 

@@ -32,7 +32,9 @@ $router->get('/users',          [UserController::class, 'list']);
 $router->post('/users',         [UserController::class, 'create']);
 $router->put('/users/{id}',     [UserController::class, 'update']);
 $router->delete('/users/{id}',  [UserController::class, 'destroy']);
-$router->patch('/users/{id}',   [UserController::class, 'patch']);
+
+// Any other HTTP method (PATCH, OPTIONS, etc.)
+$router->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PATCH']);
 ```
 
 ### Method Parameters
@@ -115,6 +117,9 @@ $router->loadAttributes(
 
 // Or scan an entire directory
 $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+// Optionally filter by filename pattern
+$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ### Attribute Parameters

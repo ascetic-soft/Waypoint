@@ -26,20 +26,19 @@ The main entry point. Implements `Psr\Http\Server\RequestHandlerInterface`.
 ```php
 use AsceticSoft\Waypoint\Router;
 
-$router = new Router(?ContainerInterface $container = null);
+$router = new Router(ContainerInterface $container);
 ```
 
 ### Route Registration
 
 | Method | Description |
 |:-------|:------------|
-| `addRoute(string $path, array\|Closure $handler, array $methods, array $middleware, string $name, int $priority): void` | Register a route for specific HTTP methods |
-| `get(string $path, array\|Closure $handler, ...): void` | Register a GET route |
-| `post(string $path, array\|Closure $handler, ...): void` | Register a POST route |
-| `put(string $path, array\|Closure $handler, ...): void` | Register a PUT route |
-| `delete(string $path, array\|Closure $handler, ...): void` | Register a DELETE route |
-| `patch(string $path, array\|Closure $handler, ...): void` | Register a PATCH route |
-| `group(string $prefix, Closure $callback, array $middleware): void` | Group routes under a shared prefix |
+| `addRoute(string $path, array\|Closure $handler, array $methods, array $middleware, string $name, int $priority): self` | Register a route for specific HTTP methods |
+| `get(string $path, array\|Closure $handler, ...): self` | Register a GET route |
+| `post(string $path, array\|Closure $handler, ...): self` | Register a POST route |
+| `put(string $path, array\|Closure $handler, ...): self` | Register a PUT route |
+| `delete(string $path, array\|Closure $handler, ...): self` | Register a DELETE route |
+| `group(string $prefix, Closure $callback, array $middleware): self` | Group routes under a shared prefix |
 
 ### Middleware
 
@@ -51,8 +50,8 @@ $router = new Router(?ContainerInterface $container = null);
 
 | Method | Description |
 |:-------|:------------|
-| `loadAttributes(string ...$classes): void` | Load routes from `#[Route]` attributes |
-| `scanDirectory(string $directory, string $namespace): void` | Auto-discover routes by scanning a directory |
+| `loadAttributes(string ...$classes): self` | Load routes from `#[Route]` attributes |
+| `scanDirectory(string $directory, string $namespace, string $filePattern = '*.php'): self` | Auto-discover routes by scanning a directory |
 
 ### Request Handling
 
@@ -64,8 +63,9 @@ $router = new Router(?ContainerInterface $container = null);
 
 | Method | Description |
 |:-------|:------------|
-| `generate(string $name, array $params = [], array $query = []): string` | Generate URL from a named route |
-| `setBaseUrl(string $baseUrl): void` | Set base URL for absolute URL generation |
+| `generate(string $name, array $params = [], array $query = [], bool $absolute = false): string` | Generate URL from a named route |
+| `setBaseUrl(string $baseUrl): self` | Set base URL for absolute URL generation |
+| `getUrlGenerator(): UrlGenerator` | Get the URL generator instance (lazily created) |
 
 ### Caching
 
@@ -116,7 +116,7 @@ Reverse routing — generates URLs from route names and parameters.
 ```php
 use AsceticSoft\Waypoint\UrlGenerator;
 
-$generator = new UrlGenerator(RouteCollection $routes);
+$generator = new UrlGenerator(RouteCollection $routes, string $baseUrl = '');
 ```
 
 | Method | Description |
@@ -138,7 +138,7 @@ $loader = new AttributeRouteLoader();
 | Method | Description |
 |:-------|:------------|
 | `loadFromClass(string $className): Route[]` | Load routes from a single class |
-| `loadFromDirectory(string $directory, string $namespace): Route[]` | Scan directory for controllers with `#[Route]` |
+| `loadFromDirectory(string $directory, string $namespace, string $filePattern = '*.php'): Route[]` | Scan directory for controllers with `#[Route]` |
 
 ---
 
@@ -170,9 +170,7 @@ use AsceticSoft\Waypoint\Cache\RouteCompiler;
 
 | Method | Description |
 |:-------|:------------|
-| `compile(RouteCollection $routes, string $file): void` | Write routes to cache file |
-| `load(string $file): Route[]` | Load routes from cache |
-| `isFresh(string $file): bool` | Check if cache file exists |
+| `compile(RouteCollection $routes, string $file): void` | Compile routes to a PHP cache file (Phase 3 compiled matcher) |
 
 ---
 

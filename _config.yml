@@ -20,6 +20,9 @@ nav_sort: case_insensitive
 
 heading_anchors: true
 
+mermaid:
+  version: "11"
+
 search_enabled: true
 search.rel_url: true
 search.focus_shortcut_key: "k"

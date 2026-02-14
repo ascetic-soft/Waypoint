@@ -117,4 +117,8 @@ composer require ascetic-soft/waypoint
     <h3><a href="{{ '/docs/api-reference.html' | relative_url }}">API Reference</a></h3>
     <p>Complete reference for all public classes and methods.</p>
   </div>
+  <div class="grid-item">
+    <h3><a href="{{ '/docs/internals.html' | relative_url }}">Internals</a></h3>
+    <p>Algorithms, data structures, and diagrams of the internal architecture.</p>
+  </div>
 </div>

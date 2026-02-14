@@ -128,6 +128,9 @@ $router->loadAttributes(UserController::class, PostController::class);
 
 // Или просканировать директорию
 $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+// С фильтрацией по имени файла
+$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ---
@@ -179,4 +182,5 @@ try {
 - [Маршрутизация]({{ '/ru/routing.html' | relative_url }}) — Регистрация маршрутов, параметры, группы и атрибуты
 - [Middleware]({{ '/ru/middleware.html' | relative_url }}) — Глобальные и маршрутные PSR-15 middleware
 - [Продвинутое]({{ '/ru/advanced.html' | relative_url }}) — Внедрение зависимостей, генерация URL, кэширование и диагностика
+- [Внутреннее устройство]({{ '/ru/internals.html' | relative_url }}) — Алгоритмы, структуры данных и диаграммы архитектуры
 - [Справочник API]({{ '/ru/api-reference.html' | relative_url }}) — Полный справочник по всем публичным классам и методам

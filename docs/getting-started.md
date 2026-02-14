@@ -127,6 +127,9 @@ $router->loadAttributes(UserController::class, PostController::class);
 
 // Or scan an entire directory
 $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+// Optionally filter by filename pattern
+$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ---
@@ -178,4 +181,5 @@ try {
 - [Routing]({{ '/docs/routing.html' | relative_url }}) — Route registration, parameters, groups, and attribute-based routing
 - [Middleware]({{ '/docs/middleware.html' | relative_url }}) — Global and per-route PSR-15 middleware
 - [Advanced]({{ '/docs/advanced.html' | relative_url }}) — Dependency injection, URL generation, caching, and diagnostics
+- [Internals]({{ '/docs/internals.html' | relative_url }}) — Algorithms, data structures, and architecture diagrams
 - [API Reference]({{ '/docs/api-reference.html' | relative_url }}) — Complete reference for all public classes and methods

@@ -27,20 +27,19 @@ parent: Русский
 ```php
 use AsceticSoft\Waypoint\Router;
 
-$router = new Router(?ContainerInterface $container = null);
+$router = new Router(ContainerInterface $container);
 ```
 
 ### Регистрация маршрутов
 
 | Метод | Описание |
 |:------|:---------|
-| `addRoute(string $path, array\|Closure $handler, array $methods, array $middleware, string $name, int $priority): void` | Зарегистрировать маршрут для указанных HTTP-методов |
-| `get(string $path, array\|Closure $handler, ...): void` | Зарегистрировать GET-маршрут |
-| `post(string $path, array\|Closure $handler, ...): void` | Зарегистрировать POST-маршрут |
-| `put(string $path, array\|Closure $handler, ...): void` | Зарегистрировать PUT-маршрут |
-| `delete(string $path, array\|Closure $handler, ...): void` | Зарегистрировать DELETE-маршрут |
-| `patch(string $path, array\|Closure $handler, ...): void` | Зарегистрировать PATCH-маршрут |
-| `group(string $prefix, Closure $callback, array $middleware): void` | Сгруппировать маршруты под общим префиксом |
+| `addRoute(string $path, array\|Closure $handler, array $methods, array $middleware, string $name, int $priority): self` | Зарегистрировать маршрут для указанных HTTP-методов |
+| `get(string $path, array\|Closure $handler, ...): self` | Зарегистрировать GET-маршрут |
+| `post(string $path, array\|Closure $handler, ...): self` | Зарегистрировать POST-маршрут |
+| `put(string $path, array\|Closure $handler, ...): self` | Зарегистрировать PUT-маршрут |
+| `delete(string $path, array\|Closure $handler, ...): self` | Зарегистрировать DELETE-маршрут |
+| `group(string $prefix, Closure $callback, array $middleware): self` | Сгруппировать маршруты под общим префиксом |
 
 ### Middleware
 
@@ -52,8 +51,8 @@ $router = new Router(?ContainerInterface $container = null);
 
 | Метод | Описание |
 |:------|:---------|
-| `loadAttributes(string ...$classes): void` | Загрузить маршруты из атрибутов `#[Route]` |
-| `scanDirectory(string $directory, string $namespace): void` | Автоматически обнаружить маршруты, сканируя директорию |
+| `loadAttributes(string ...$classes): self` | Загрузить маршруты из атрибутов `#[Route]` |
+| `scanDirectory(string $directory, string $namespace, string $filePattern = '*.php'): self` | Автоматически обнаружить маршруты, сканируя директорию |
 
 ### Обработка запросов
 
@@ -65,8 +64,9 @@ $router = new Router(?ContainerInterface $container = null);
 
 | Метод | Описание |
 |:------|:---------|
-| `generate(string $name, array $params = [], array $query = []): string` | Сгенерировать URL из именованного маршрута |
-| `setBaseUrl(string $baseUrl): void` | Установить базовый URL для абсолютных URL |
+| `generate(string $name, array $params = [], array $query = [], bool $absolute = false): string` | Сгенерировать URL из именованного маршрута |
+| `setBaseUrl(string $baseUrl): self` | Установить базовый URL для абсолютных URL |
+| `getUrlGenerator(): UrlGenerator` | Получить экземпляр генератора URL (создаётся лениво) |
 
 ### Кэширование
 
@@ -117,7 +117,7 @@ $router = new Router(?ContainerInterface $container = null);
 ```php
 use AsceticSoft\Waypoint\UrlGenerator;
 
-$generator = new UrlGenerator(RouteCollection $routes);
+$generator = new UrlGenerator(RouteCollection $routes, string $baseUrl = '');
 ```
 
 | Метод | Описание |
@@ -139,7 +139,7 @@ $loader = new AttributeRouteLoader();
 | Метод | Описание |
 |:------|:---------|
 | `loadFromClass(string $className): Route[]` | Загрузить маршруты из одного класса |
-| `loadFromDirectory(string $directory, string $namespace): Route[]` | Просканировать директорию на контроллеры с `#[Route]` |
+| `loadFromDirectory(string $directory, string $namespace, string $filePattern = '*.php'): Route[]` | Просканировать директорию на контроллеры с `#[Route]` |
 
 ---
 
@@ -171,9 +171,7 @@ use AsceticSoft\Waypoint\Cache\RouteCompiler;
 
 | Метод | Описание |
 |:------|:---------|
-| `compile(RouteCollection $routes, string $file): void` | Записать маршруты в файл кэша |
-| `load(string $file): Route[]` | Загрузить маршруты из кэша |
-| `isFresh(string $file): bool` | Проверить существование файла кэша |
+| `compile(RouteCollection $routes, string $file): void` | Скомпилировать маршруты в PHP-файл кэша (Phase 3 compiled matcher) |
 
 ---
 
