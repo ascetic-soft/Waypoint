@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-02-14
+
 ### Added
 
 - **100% line/method/class test coverage** — 7 new tests covering previously uncovered edge cases:
@@ -72,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Base URL support in `UrlGenerator` for generating absolute URLs.
 - `BaseUrlNotSetException` for cases when base URL is required but not configured.
-- `Router::generateAbsoluteUrl()` convenience method.
+- `Router::generate()` `$absolute` parameter and `Router::setBaseUrl()` for absolute URL generation.
 - Tests for absolute URL generation.
 
 ## [1.1.0] - 2026-02-12
@@ -82,8 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **URL Generator** (`UrlGenerator`) for reverse routing — generate URLs from named routes with parameter substitution.
 - `MissingParametersException` for missing required route parameters during URL generation.
 - `RouteNameNotFoundException` for referencing undefined route names.
-- `Router::generateUrl()` convenience method.
-- `RouteCollection::getByName()` for looking up routes by name.
+- `Router::generate()` convenience method for URL generation.
+- `RouteCollection::findByName()` for looking up routes by name.
 - Tests for `UrlGenerator`, `RouteCollection`, `RouteDiagnostics`, and `RouteHandler`.
 
 ## [1.0.0] - 2026-02-12
@@ -114,7 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive README with usage examples.
 - PHPUnit test suite covering core components.
 
-[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.0...v1.1.1
