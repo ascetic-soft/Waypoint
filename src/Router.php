@@ -284,10 +284,11 @@ final class Router implements RequestHandlerInterface
         if ($this->globalMiddleware === [] && $routeMw === []) {
             return $routeHandler->handle($routeRequest);
         }
-
-        $allMiddleware = $this->globalMiddleware === []
-            ? $routeMw
-            : ($routeMw === [] ? $this->globalMiddleware : array_merge($this->globalMiddleware, $routeMw));
+        if ($this->globalMiddleware === []) {
+            $allMiddleware = $routeMw;
+        } else {
+            $allMiddleware = ($routeMw === [] ? $this->globalMiddleware : array_merge($this->globalMiddleware, $routeMw));
+        }
 
         $pipeline = new MiddlewarePipeline(
             middlewares: $allMiddleware,
