@@ -451,4 +451,238 @@ final class RouteTrieTest extends TestCase
         // No match
         self::assertNull($trie->match('GET', RouteTrie::splitUri('/api/orders')));
     }
+
+    // ── toArray / fromArray serialisation ────────────────────────
+
+    #[Test]
+    public function toArrayAndFromArrayRoundTrip(): void
+    {
+        $trie = new RouteTrie();
+
+        $routes = [
+            new Route('/about', ['GET'], ['C', 'm']),
+            new Route('/users/{id:\d+}', ['GET'], ['C', 'm']),
+            new Route('/posts/{year:\d{4}}/{slug}', ['GET'], ['C', 'm']),
+        ];
+
+        $routeIndexMap = [];
+        foreach ($routes as $i => $route) {
+            $routeIndexMap[spl_object_id($route)] = $i;
+            $trie->insert($route, RouteTrie::parsePattern($route->getPattern()));
+        }
+
+        // Serialise
+        $arrayData = $trie->toArray($routeIndexMap);
+
+        // Deserialise
+        $restored = RouteTrie::fromArray($arrayData, $routes);
+
+        // Verify matching still works
+        $result = $restored->match('GET', RouteTrie::splitUri('/about'));
+        self::assertNotNull($result);
+        self::assertSame($routes[0], $result['route']);
+
+        $result = $restored->match('GET', RouteTrie::splitUri('/users/42'));
+        self::assertNotNull($result);
+        self::assertSame($routes[1], $result['route']);
+        self::assertSame(['id' => '42'], $result['params']);
+
+        $result = $restored->match('GET', RouteTrie::splitUri('/posts/2025/hello'));
+        self::assertNotNull($result);
+        self::assertSame($routes[2], $result['route']);
+        self::assertSame(['year' => '2025', 'slug' => 'hello'], $result['params']);
+    }
+
+    #[Test]
+    public function toArrayAndFromArrayWithDynamicChildren(): void
+    {
+        $trie = new RouteTrie();
+        $route = new Route('/items/{id:\d+}', ['GET'], ['C', 'm']);
+        $routeIndexMap = [spl_object_id($route) => 0];
+
+        $trie->insert($route, RouteTrie::parsePattern('/items/{id:\d+}'));
+
+        $arrayData = $trie->toArray($routeIndexMap);
+        $restored = RouteTrie::fromArray($arrayData, [$route]);
+
+        $result = $restored->match('GET', RouteTrie::splitUri('/items/7'));
+        self::assertNotNull($result);
+        self::assertSame(['id' => '7'], $result['params']);
+    }
+
+    // ── matchArray (Phase 2 array-based matching) ────────────────
+
+    #[Test]
+    public function matchArrayStaticRoute(): void
+    {
+        $trieData = $this->buildTrieData();
+        $allowedMethods = [];
+
+        $result = RouteTrie::matchArray(
+            $trieData['trie'],
+            $trieData['routes'],
+            'GET',
+            RouteTrie::splitUri('/about'),
+            0,
+            [],
+            $allowedMethods,
+        );
+
+        self::assertNotNull($result);
+        self::assertSame([], $result['params']);
+    }
+
+    #[Test]
+    public function matchArrayDynamicRoute(): void
+    {
+        $trieData = $this->buildTrieData();
+        $allowedMethods = [];
+
+        $result = RouteTrie::matchArray(
+            $trieData['trie'],
+            $trieData['routes'],
+            'GET',
+            RouteTrie::splitUri('/users/42'),
+            0,
+            [],
+            $allowedMethods,
+        );
+
+        self::assertNotNull($result);
+        self::assertSame(['id' => '42'], $result['params']);
+    }
+
+    #[Test]
+    public function matchArrayReturnsNullForNoMatch(): void
+    {
+        $trieData = $this->buildTrieData();
+        $allowedMethods = [];
+
+        $result = RouteTrie::matchArray(
+            $trieData['trie'],
+            $trieData['routes'],
+            'GET',
+            RouteTrie::splitUri('/nonexistent'),
+            0,
+            [],
+            $allowedMethods,
+        );
+
+        self::assertNull($result);
+    }
+
+    #[Test]
+    public function matchArrayCollectsAllowedMethods(): void
+    {
+        $trieData = $this->buildTrieData();
+        $allowedMethods = [];
+
+        $result = RouteTrie::matchArray(
+            $trieData['trie'],
+            $trieData['routes'],
+            'DELETE',
+            RouteTrie::splitUri('/about'),
+            0,
+            [],
+            $allowedMethods,
+        );
+
+        self::assertNull($result);
+        self::assertArrayHasKey('GET', $allowedMethods);
+    }
+
+    #[Test]
+    public function matchArrayDynamicMethodMismatch(): void
+    {
+        $trieData = $this->buildTrieData();
+        $allowedMethods = [];
+
+        $result = RouteTrie::matchArray(
+            $trieData['trie'],
+            $trieData['routes'],
+            'DELETE',
+            RouteTrie::splitUri('/users/42'),
+            0,
+            [],
+            $allowedMethods,
+        );
+
+        self::assertNull($result);
+        self::assertArrayHasKey('GET', $allowedMethods);
+    }
+
+    #[Test]
+    public function matchArrayRootRoute(): void
+    {
+        $route = new Route('/', ['GET'], ['C', 'm']);
+        $route->compile();
+        $trie = new RouteTrie();
+        $routeIndexMap = [spl_object_id($route) => 0];
+        $trie->insert($route, RouteTrie::parsePattern('/'));
+
+        $trieArray = $trie->toArray($routeIndexMap);
+        $routeData = [$route->toArray()];
+
+        $allowedMethods = [];
+        $result = RouteTrie::matchArray($trieArray, $routeData, 'GET', [], 0, [], $allowedMethods);
+
+        self::assertNotNull($result);
+        self::assertSame(0, $result['index']);
+    }
+
+    // ── matchArray with static + dynamic backtracking ─────────────
+
+    #[Test]
+    public function matchArrayPrefersStaticOverDynamic(): void
+    {
+        $staticRoute = new Route('/users/profile', ['GET'], ['C', 'static']);
+        $dynamicRoute = new Route('/users/{name}', ['GET'], ['C', 'dynamic']);
+
+        $staticRoute->compile();
+        $dynamicRoute->compile();
+
+        $trie = new RouteTrie();
+        $routeIndexMap = [
+            spl_object_id($dynamicRoute) => 0,
+            spl_object_id($staticRoute) => 1,
+        ];
+        $trie->insert($dynamicRoute, RouteTrie::parsePattern('/users/{name}'));
+        $trie->insert($staticRoute, RouteTrie::parsePattern('/users/profile'));
+
+        $trieArray = $trie->toArray($routeIndexMap);
+        $routeData = [$dynamicRoute->toArray(), $staticRoute->toArray()];
+
+        $allowedMethods = [];
+        $result = RouteTrie::matchArray($trieArray, $routeData, 'GET', ['users', 'profile'], 0, [], $allowedMethods);
+
+        self::assertNotNull($result);
+        self::assertSame(1, $result['index']); // Static wins
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────
+
+    /**
+     * @return array{trie: array<string, mixed>, routes: list<array<string, mixed>>}
+     */
+    private function buildTrieData(): array
+    {
+        $routes = [
+            new Route('/about', ['GET'], ['C', 'm']),
+            new Route('/users/{id:\d+}', ['GET'], ['C', 'm']),
+        ];
+
+        $trie = new RouteTrie();
+        $routeIndexMap = [];
+
+        foreach ($routes as $i => $route) {
+            $route->compile();
+            $routeIndexMap[spl_object_id($route)] = $i;
+            $trie->insert($route, RouteTrie::parsePattern($route->getPattern()));
+        }
+
+        return [
+            'trie' => $trie->toArray($routeIndexMap),
+            'routes' => array_map(static fn (Route $r) => $r->toArray(), $routes),
+        ];
+    }
 }

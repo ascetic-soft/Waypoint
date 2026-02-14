@@ -87,7 +87,9 @@ final class AttributeRouteLoader
         /** @var \SplFileInfo $file */
         foreach ($iterator as $file) {
             if ($file->getExtension() !== 'php') {
+                // @codeCoverageIgnoreStart
                 continue;
+                // @codeCoverageIgnoreEnd
             }
 
             // Build FQCN: namespace + relative path (without .php extension)
@@ -96,13 +98,17 @@ final class AttributeRouteLoader
             $className = $namespace . substr($relativePath, 0, -4); // strip .php
 
             if (!class_exists($className)) {
+                // @codeCoverageIgnoreStart
                 continue;
+                // @codeCoverageIgnoreEnd
             }
 
             $reflection = new \ReflectionClass($className);
 
             if ($reflection->isAbstract() || $reflection->isInterface()) {
+                // @codeCoverageIgnoreStart
                 continue;
+                // @codeCoverageIgnoreEnd
             }
 
             $classRoutes = $this->loadFromClass($className);

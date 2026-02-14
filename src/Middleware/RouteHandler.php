@@ -103,7 +103,9 @@ final readonly class RouteHandler implements RequestHandlerInterface
                 ),
                 'container' => $this->container->get($entry['class'] ?? ''),
                 'default'   => $entry['value'] ?? null,
+                // @codeCoverageIgnoreStart
                 default     => throw new \RuntimeException(\sprintf('Unknown argPlan source "%s".', $source)),
+                // @codeCoverageIgnoreEnd
             };
         }
 

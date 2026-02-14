@@ -348,4 +348,140 @@ final class RouteTest extends TestCase
             $route->match('/files/docs/readme.md'),
         );
     }
+
+    // ── fromCompactArray ────────────────────────────────────────
+
+    #[Test]
+    public function fromCompactArrayRestoresBasicRoute(): void
+    {
+        $data = [
+            'h' => ['App\\Controller\\UserController', 'show'],
+            'M' => ['GET'],
+            'p' => '/users/{id:\d+}',
+        ];
+
+        $route = Route::fromCompactArray($data);
+
+        self::assertSame('/users/{id:\d+}', $route->getPattern());
+        self::assertSame(['GET'], $route->getMethods());
+        self::assertSame(['App\\Controller\\UserController', 'show'], $route->getHandler());
+        self::assertSame([], $route->getMiddleware());
+        self::assertSame('', $route->getName());
+        self::assertSame(0, $route->getPriority());
+    }
+
+    #[Test]
+    public function fromCompactArrayRestoresAllOptionalFields(): void
+    {
+        $data = [
+            'h' => ['App\\Controller\\UserController', 'show'],
+            'M' => ['GET', 'POST'],
+            'p' => '/users/{id:\d+}',
+            'w' => ['App\\Middleware\\Auth'],
+            'n' => 'users.show',
+            'P' => 5,
+            'r' => '#^/users/(?P<id>\d+)$#',
+            'N' => ['id'],
+            'a' => [['source' => 'param', 'name' => 'id', 'cast' => 'int']],
+        ];
+
+        $route = Route::fromCompactArray($data);
+
+        self::assertSame(['App\\Middleware\\Auth'], $route->getMiddleware());
+        self::assertSame('users.show', $route->getName());
+        self::assertSame(5, $route->getPriority());
+        self::assertSame('#^/users/(?P<id>\d+)$#', $route->getCompiledRegex());
+        self::assertSame(['id'], $route->getParameterNames());
+        self::assertSame([['source' => 'param', 'name' => 'id', 'cast' => 'int']], $route->getArgPlan());
+    }
+
+    #[Test]
+    public function fromCompactArrayWithPreCompiledRegexCanMatch(): void
+    {
+        $data = [
+            'h' => ['C', 'm'],
+            'M' => ['GET'],
+            'p' => '/items/{id:\d+}',
+            'r' => '#^/items/(?P<id>\d+)$#',
+            'N' => ['id'],
+        ];
+
+        $route = Route::fromCompactArray($data);
+
+        self::assertSame(['id' => '99'], $route->match('/items/99'));
+        self::assertNull($route->match('/items/abc'));
+    }
+
+    #[Test]
+    public function fromCompactArrayWithoutRegexRecompiles(): void
+    {
+        $data = [
+            'h' => ['C', 'm'],
+            'M' => ['GET'],
+            'p' => '/items/{id:\d+}',
+        ];
+
+        $route = Route::fromCompactArray($data);
+
+        // Without pre-compiled regex, compile() should be triggered by match()
+        self::assertSame(['id' => '99'], $route->match('/items/99'));
+        self::assertSame(['id'], $route->getParameterNames());
+    }
+
+    // ── getArgPlan ──────────────────────────────────────────────
+
+    #[Test]
+    public function getArgPlanReturnsNullByDefault(): void
+    {
+        $route = new Route('/test', ['GET'], ['C', 'm']);
+
+        self::assertNull($route->getArgPlan());
+    }
+
+    #[Test]
+    public function getArgPlanAfterFromArray(): void
+    {
+        $data = [
+            'path' => '/test',
+            'methods' => ['GET'],
+            'handler' => ['C', 'm'],
+            'compiledRegex' => '#^/test$#',
+            'parameterNames' => [],
+            'argPlan' => [['source' => 'request']],
+        ];
+
+        $route = Route::fromArray($data);
+
+        self::assertSame([['source' => 'request']], $route->getArgPlan());
+    }
+
+    // ── toArray with argPlan ────────────────────────────────────
+
+    #[Test]
+    public function toArrayIncludesArgPlanWhenSet(): void
+    {
+        $data = [
+            'path' => '/test',
+            'methods' => ['GET'],
+            'handler' => ['C', 'm'],
+            'compiledRegex' => '#^/test$#',
+            'parameterNames' => [],
+            'argPlan' => [['source' => 'request']],
+        ];
+
+        $route = Route::fromArray($data);
+        $exported = $route->toArray();
+
+        self::assertArrayHasKey('argPlan', $exported);
+        self::assertSame([['source' => 'request']], $exported['argPlan']);
+    }
+
+    #[Test]
+    public function toArrayOmitsArgPlanWhenNull(): void
+    {
+        $route = new Route('/test', ['GET'], ['C', 'm']);
+        $exported = $route->toArray();
+
+        self::assertArrayNotHasKey('argPlan', $exported);
+    }
 }

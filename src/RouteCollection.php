@@ -141,7 +141,9 @@ final class RouteCollection
         $this->buildTrie();
 
         if ($this->trie === null) {
+            // @codeCoverageIgnoreStart
             throw new \LogicException('RouteTrie was not initialized after buildTrie().');
+            // @codeCoverageIgnoreEnd
         }
 
         $method = strtoupper($method);

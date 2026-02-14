@@ -265,4 +265,98 @@ final class RouteDiagnosticsTest extends TestCase
 
         self::assertEmpty($report->shadowedRoutes);
     }
+
+    #[Test]
+    public function noShadowWhenBothParamsUnconstrained(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/{name}', ['GET'], ['C', 'a'], priority: 10));
+        $collection->add(new Route('/users/{slug}', ['GET'], ['C', 'b'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        // Both unconstrained — not a clear shadow (they're equivalent)
+        self::assertEmpty($report->shadowedRoutes);
+    }
+
+    #[Test]
+    public function noShadowWhenBothParamsConstrained(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/{id:\d+}', ['GET'], ['C', 'a'], priority: 10));
+        $collection->add(new Route('/users/{id:[a-z]+}', ['GET'], ['C', 'b'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        // Both constrained — not a shadow
+        self::assertEmpty($report->shadowedRoutes);
+    }
+
+    #[Test]
+    public function noShadowWhenDifferentStaticSegments(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/admin', ['GET'], ['C', 'a'], priority: 10));
+        $collection->add(new Route('/users/profile', ['GET'], ['C', 'b'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertEmpty($report->shadowedRoutes);
+    }
+
+    #[Test]
+    public function noShadowWhenDifferentMethods(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users/{name}', ['GET'], ['C', 'a'], priority: 10));
+        $collection->add(new Route('/users/{id:\d+}', ['POST'], ['C', 'b'], priority: 0));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertEmpty($report->shadowedRoutes);
+    }
+
+    #[Test]
+    public function noDuplicatePathsWhenDifferentMethods(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users', ['GET'], ['C', 'a']));
+        $collection->add(new Route('/users', ['POST'], ['C', 'b']));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        // Different methods → no duplicate paths
+        self::assertEmpty($report->duplicatePaths);
+    }
+
+    #[Test]
+    public function noDuplicateNamesWhenUnnamedRoutes(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/a', ['GET'], ['C', 'a']));
+        $collection->add(new Route('/b', ['GET'], ['C', 'b']));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertEmpty($report->duplicateNames);
+    }
+
+    #[Test]
+    public function noDuplicatePathsWhenDifferentRegex(): void
+    {
+        $collection = new RouteCollection();
+        $collection->add(new Route('/users', ['GET'], ['C', 'a']));
+        $collection->add(new Route('/posts', ['GET'], ['C', 'b']));
+
+        $diagnostics = new RouteDiagnostics($collection);
+        $report = $diagnostics->findConflicts();
+
+        self::assertEmpty($report->duplicatePaths);
+    }
 }

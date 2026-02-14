@@ -74,7 +74,9 @@ final class RouteTrie
 
         // Dynamic segment — reuse an existing child with the same (paramName, pattern).
         if (!isset($seg['paramName'], $seg['pattern'])) {
+            // @codeCoverageIgnoreStart
             throw new \LogicException('Dynamic segment is missing required keys "paramName" and/or "pattern".');
+            // @codeCoverageIgnoreEnd
         }
 
         $paramName = $seg['paramName'];

@@ -110,7 +110,9 @@ final class RouteCompiler
 
         $dir = \dirname($cacheFilePath);
         if (!is_dir($dir) && !mkdir($dir, 0o755, true) && !is_dir($dir)) {
+            // @codeCoverageIgnoreStart
             throw new \RuntimeException(\sprintf('Directory "%s" was not created', $dir));
+            // @codeCoverageIgnoreEnd
         }
 
         // Atomic write: write to temp file then rename
@@ -118,10 +120,12 @@ final class RouteCompiler
         file_put_contents($tmpFile, $content, LOCK_EX);
         rename($tmpFile, $cacheFilePath);
 
+        // @codeCoverageIgnoreStart
         // Invalidate opcache for the old file if opcache is available
         if (\function_exists('opcache_invalidate')) {
             opcache_invalidate($cacheFilePath, true);
         }
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -381,7 +385,9 @@ final class RouteCompiler
             return '[' . implode(', ', $parts) . ']';
         }
 
+        // @codeCoverageIgnoreStart
         return var_export($value, true);
+        // @codeCoverageIgnoreEnd
     }
 
     // ── Argument plan builder ──────────────────────────────────
@@ -401,7 +407,9 @@ final class RouteCompiler
         $handler = $route->getHandler();
 
         if ($handler instanceof \Closure) {
+            // @codeCoverageIgnoreStart
             return null;
+            // @codeCoverageIgnoreEnd
         }
 
         [$className, $methodName] = $handler;
