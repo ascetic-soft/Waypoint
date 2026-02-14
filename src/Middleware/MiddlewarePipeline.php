@@ -15,21 +15,22 @@ use Psr\Http\Server\RequestHandlerInterface;
  *
  * Executes a stack of middleware in FIFO order, delegating to the
  * provided fallback handler when the stack is exhausted.
+ *
+ * Uses an index-based iteration instead of cloning: each call to
+ * {@see handle()} advances the internal cursor, and a {@see finally}
+ * block restores it so the pipeline stays in a consistent state
+ * regardless of short-circuits or exceptions.
  */
 final class MiddlewarePipeline implements RequestHandlerInterface
 {
     private int $index = 0;
 
     /**
-     * Shared cache of resolved middleware instances (class-string → MiddlewareInterface).
+     * Cache of resolved middleware instances (class-string → MiddlewareInterface).
      *
-     * Uses {@see \ArrayObject} so that the reference survives {@see clone}
-     * (shallow copy keeps the same object) and every step in the pipeline
-     * chain benefits from a single container lookup per class-string.
-     *
-     * @var \ArrayObject<string, MiddlewareInterface>
+     * @var array<string, MiddlewareInterface>
      */
-    private \ArrayObject $resolvedMiddleware;
+    private array $resolvedMiddleware = [];
 
     /**
      * @param list<string|MiddlewareInterface> $middlewares  Middleware instances or class-strings resolved via container.
@@ -41,7 +42,6 @@ final class MiddlewarePipeline implements RequestHandlerInterface
         private readonly RequestHandlerInterface $handler,
         private readonly ContainerInterface $container,
     ) {
-        $this->resolvedMiddleware = new \ArrayObject();
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -53,18 +53,20 @@ final class MiddlewarePipeline implements RequestHandlerInterface
         $middleware = $this->middlewares[$this->index];
 
         if (\is_string($middleware)) {
-            if (!isset($this->resolvedMiddleware[$middleware])) {
-                /** @var MiddlewareInterface $resolved */
-                $resolved = $this->container->get($middleware);
-                $this->resolvedMiddleware[$middleware] = $resolved;
-            }
+            $this->resolvedMiddleware[$middleware] ??= $this->container->get($middleware);
+            /** @var MiddlewareInterface $middleware */
             $middleware = $this->resolvedMiddleware[$middleware];
         }
 
-        // Advance index for the next call in the chain
-        $next = clone $this;
-        $next->index = $this->index + 1;
+        // Advance index and pass $this as the next handler — no clone needed.
+        // The finally block restores the index so the pipeline remains
+        // consistent after short-circuits, exceptions, or normal returns.
+        ++$this->index;
 
-        return $middleware->process($request, $next);
+        try {
+            return $middleware->process($request, $this);
+        } finally {
+            --$this->index;
+        }
     }
 }

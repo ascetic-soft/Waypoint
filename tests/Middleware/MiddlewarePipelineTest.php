@@ -118,7 +118,7 @@ final class MiddlewarePipelineTest extends TestCase
     }
 
     #[Test]
-    public function classStringCacheIsSharedAcrossClonedSteps(): void
+    public function classStringCacheIsSharedAcrossPipelineSteps(): void
     {
         $dummyInstance = new DummyMiddleware();
         $anotherInstance = new AnotherMiddleware();
