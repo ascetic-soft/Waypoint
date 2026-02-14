@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-02-14
+
+### Added
+
+- **HEAD→GET automatic fallback** in `RouteCollection::match()` per RFC 7231 §4.3.2 — if no explicit HEAD route exists but a GET route matches, the GET route is used.
+- **Directory scanning** in `AttributeRouteLoader::loadFromDirectory()` with a three-stage filter (filename pattern, content pre-check, reflection gate) to minimise expensive autoloading.
+- `Router::scanDirectory()` now accepts an optional `$filePattern` parameter for filtering controller files (e.g. `*Controller.php`).
+- **Runtime type-check** for middleware resolved from the PSR-11 container — throws a clear `RuntimeException` if the resolved object does not implement `MiddlewareInterface`.
+- New tests for `RouteCollection`, `Router`, `AttributeRouteLoader`, and `MiddlewarePipeline` (exception recovery, reusability, short-circuit behaviour).
+
+### Changed
+
+- **MiddlewarePipeline** refactored from clone-based to index-based iteration with a `finally` block — eliminates object cloning and ensures consistent state after exceptions or short-circuits.
+- **Middleware caching** — resolved middleware instances are now cached to avoid redundant container lookups.
+- **Static route hash table** — O(1) lookup for parameter-less routes in `RouteCollection`.
+- **Prefix-based fallback route grouping** and lazy hydration for compiled route data in `RouteCollection`.
+- `Router::buildPath()` fast-path optimisation when no group prefix is set.
+- Inlined `RouteTrie::splitUri()` in the matching hot path to reduce function-call overhead.
+
 ## [1.1.2] - 2026-02-14
 
 ### Added
@@ -79,7 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive README with usage examples.
 - PHPUnit test suite covering core components.
 
-[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ascetic-soft/Waypoint/compare/v1.0.0...v1.1.0
