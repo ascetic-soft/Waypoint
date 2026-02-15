@@ -18,7 +18,7 @@ use Attribute;
  * The attribute is repeatable, allowing multiple routes to be mapped to the same method.
  */
 #[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_METHOD | Attribute::IS_REPEATABLE)]
-final class Route
+final readonly class Route
 {
     /**
      * @param string        $path       Route path pattern (e.g. '/', '/{id:\d+}'). On a class, acts as a prefix.
@@ -28,11 +28,11 @@ final class Route
      * @param int           $priority   Route matching priority. Higher values are matched first.
      */
     public function __construct(
-        public readonly string $path = '',
-        public readonly array $methods = ['GET'],
-        public readonly string $name = '',
-        public readonly array $middleware = [],
-        public readonly int $priority = 0,
+        public string $path = '',
+        public array  $methods = ['GET'],
+        public string $name = '',
+        public array  $middleware = [],
+        public int    $priority = 0,
     ) {
     }
 }

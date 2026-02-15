@@ -43,7 +43,7 @@ final class AttributeRouteLoaderTest extends TestCase
         self::assertCount(3, $routes);
 
         $patterns = array_map(static fn ($r) => $r->getPattern(), $routes);
-        self::assertContains('/api/users/', $patterns);
+        self::assertContains('/api/users', $patterns);
         self::assertContains('/api/users/{id:\d+}', $patterns);
     }
 

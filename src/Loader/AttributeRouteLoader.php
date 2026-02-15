@@ -155,6 +155,11 @@ final class AttributeRouteLoader
                 $normalised = preg_replace('#/{2,}#', '/', $path) ?? $path;
                 $path = '/' . ltrim($normalised, '/');
 
+                // Remove trailing slash (except for root path '/')
+                if ($path !== '/' && str_ends_with($path, '/')) {
+                    $path = rtrim($path, '/');
+                }
+
                 $routes[] = new Route(
                     pattern: $path,
                     methods: array_map('strtoupper', $methodRoute->methods),
