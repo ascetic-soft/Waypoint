@@ -8,6 +8,7 @@ use AsceticSoft\Waypoint\Cache\CompiledMatcherInterface;
 use AsceticSoft\Waypoint\Cache\RouteCompiler;
 use AsceticSoft\Waypoint\Route;
 use AsceticSoft\Waypoint\RouteCollection;
+use AsceticSoft\Waypoint\UrlMatcher;
 use AsceticSoft\Waypoint\Tests\Fixture\TestController;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -59,7 +60,9 @@ final class RouteCompilerTest extends TestCase
         self::assertFileExists($this->cacheFile);
 
         $loaded = $compiler->load($this->cacheFile);
-        $routes = $loaded->all();
+        self::assertInstanceOf(UrlMatcher::class, $loaded);
+
+        $routes = $loaded->getRouteCollection()->all();
 
         self::assertCount(2, $routes);
 
@@ -384,6 +387,7 @@ final class RouteCompilerTest extends TestCase
 
         $compiler = new RouteCompiler();
         $loaded = $compiler->load($this->cacheFile);
+        self::assertInstanceOf(UrlMatcher::class, $loaded);
 
         $result = $loaded->match('GET', '/about');
         self::assertSame('/about', $result->route->getPattern());
@@ -409,8 +413,9 @@ final class RouteCompilerTest extends TestCase
 
         $compiler = new RouteCompiler();
         $loaded = $compiler->load($this->cacheFile);
+        self::assertInstanceOf(UrlMatcher::class, $loaded);
 
-        $all = $loaded->all();
+        $all = $loaded->getRouteCollection()->all();
         self::assertCount(1, $all);
         self::assertSame('/test', $all[0]->getPattern());
     }

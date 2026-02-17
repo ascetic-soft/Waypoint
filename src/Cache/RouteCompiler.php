@@ -7,6 +7,7 @@ namespace AsceticSoft\Waypoint\Cache;
 use AsceticSoft\Waypoint\Route;
 use AsceticSoft\Waypoint\RouteCollection;
 use AsceticSoft\Waypoint\RouteTrie;
+use AsceticSoft\Waypoint\UrlMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -143,7 +144,7 @@ final class RouteCompiler
     }
 
     /**
-     * Load a {@see RouteCollection} from a previously compiled cache file.
+     * Load a {@see UrlMatcher} from a previously compiled cache file.
      *
      * Supports three formats:
      * 1. Compiled PHP matcher (named class) — Phase 3 format
@@ -152,7 +153,7 @@ final class RouteCompiler
      *
      * @param string $cacheFilePath Absolute path to the compiled PHP file.
      */
-    public function load(string $cacheFilePath): RouteCollection
+    public function load(string $cacheFilePath): UrlMatcher
     {
         if (!is_file($cacheFilePath)) {
             throw new \RuntimeException(\sprintf(
@@ -165,7 +166,7 @@ final class RouteCompiler
 
         // ── Phase 3: compiled PHP matcher (named class) ──
         if ($data instanceof CompiledMatcherInterface) {
-            return RouteCollection::fromCompiledMatcher($data);
+            return UrlMatcher::fromCompiledMatcher($data);
         }
 
         \assert(\is_array($data));
@@ -173,7 +174,7 @@ final class RouteCompiler
         // ── Phase 2: array with trie ──
         if (isset($data['trie'])) {
             /** @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
-            return RouteCollection::fromCompiledRaw($data);
+            return UrlMatcher::fromCompiledRaw($data);
         }
 
         // ── Legacy: flat array of route data ──
@@ -184,7 +185,7 @@ final class RouteCompiler
             $collection->add(Route::fromArray($item));
         }
 
-        return $collection;
+        return new UrlMatcher($collection);
     }
 
     /**

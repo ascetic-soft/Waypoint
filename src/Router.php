@@ -20,10 +20,14 @@ use Psr\Http\Server\RequestHandlerInterface;
  *
  * Provides a fluent API for manual route registration, attribute-based loading,
  * middleware management, route groups, and cache compilation.
+ *
+ * Route matching is delegated to a {@see UrlMatcherInterface} instance,
+ * which can be used independently of PSR-7/PSR-15.
  */
 final class Router implements RequestHandlerInterface
 {
     private RouteCollection $routes;
+    private ?UrlMatcherInterface $matcher = null;
     private ?AttributeRouteLoader $loader = null;
     private ?UrlGenerator $urlGenerator = null;
 
@@ -76,6 +80,8 @@ final class Router implements RequestHandlerInterface
             name: $name,
             priority: $priority,
         ));
+
+        $this->invalidateMatcher();
 
         return $this;
     }
@@ -156,6 +162,8 @@ final class Router implements RequestHandlerInterface
             }
         }
 
+        $this->invalidateMatcher();
+
         return $this;
     }
 
@@ -172,6 +180,8 @@ final class Router implements RequestHandlerInterface
         foreach ($this->getLoader()->loadFromDirectory($directory, $namespace, $filePattern) as $route) {
             $this->routes->add($route);
         }
+
+        $this->invalidateMatcher();
 
         return $this;
     }
@@ -225,11 +235,13 @@ final class Router implements RequestHandlerInterface
 
         if ($data instanceof CompiledMatcherInterface) {
             // Phase 3: compiled PHP matcher (named class).
-            $this->routes = RouteCollection::fromCompiledMatcher($data);
+            $this->matcher = UrlMatcher::fromCompiledMatcher($data);
+            $this->routes = new RouteCollection();
         } elseif (\is_array($data) && isset($data['trie'])) {
             // Phase 2: array with pre-built trie.
             /** @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
-            $this->routes = RouteCollection::fromCompiledRaw($data);
+            $this->matcher = UrlMatcher::fromCompiledRaw($data);
+            $this->routes = new RouteCollection();
         } elseif (\is_array($data)) {
             // Legacy: flat array of route data.
             $collection = new RouteCollection();
@@ -238,6 +250,7 @@ final class Router implements RequestHandlerInterface
                 $collection->add(Route::fromArray($item));
             }
             $this->routes = $collection;
+            $this->matcher = null;
         } else {
             throw new \RuntimeException(\sprintf('Invalid route cache format in "%s".', $cacheFilePath));
         }
@@ -260,7 +273,7 @@ final class Router implements RequestHandlerInterface
         $method = $request->getMethod();
         $uri = $request->getUri()->getPath();
 
-        $result = $this->routes->match($method, $uri);
+        $result = $this->getMatcher()->match($method, $uri);
 
         // Store route parameters in request attributes (skip when empty).
         $routeRequest = $request;
@@ -334,14 +347,32 @@ final class Router implements RequestHandlerInterface
      */
     public function getUrlGenerator(): UrlGenerator
     {
-        return $this->urlGenerator ??= new UrlGenerator($this->routes, $this->baseUrl);
+        return $this->urlGenerator ??= new UrlGenerator($this->getRouteCollection(), $this->baseUrl);
     }
 
     // ── Access to internals (for diagnostics, testing) ───────────
 
+    /**
+     * Get the route collection.
+     *
+     * When routes are loaded from cache, the collection is hydrated
+     * lazily from the compiled matcher data.
+     */
     public function getRouteCollection(): RouteCollection
     {
+        if ($this->matcher instanceof UrlMatcher) {
+            return $this->matcher->getRouteCollection();
+        }
+
         return $this->routes;
+    }
+
+    /**
+     * Get the URL matcher instance (lazily created from the route collection).
+     */
+    public function getMatcher(): UrlMatcherInterface
+    {
+        return $this->matcher ??= new UrlMatcher($this->routes);
     }
 
     // ── Private helpers ──────────────────────────────────────────
@@ -365,5 +396,14 @@ final class Router implements RequestHandlerInterface
         $normalised = preg_replace('#/{2,}#', '/', $full) ?? $full;
 
         return '/' . ltrim($normalised, '/');
+    }
+
+    /**
+     * Invalidate the cached matcher when routes change.
+     */
+    private function invalidateMatcher(): void
+    {
+        $this->matcher = null;
+        $this->urlGenerator = null;
     }
 }
