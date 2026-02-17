@@ -16,7 +16,7 @@ interface CompiledRouteProviderInterface
     /**
      * Get compact route data by index.
      *
-     * @return array{h: array{0:class-string,1:string}|\Closure, M: list<string>, p: string, w?: list<string>, n?: string, P?: int, r?: string, N?: list<string>, a?: list<array<string, mixed>>|null}
+     * @return array{h: array{0:class-string,1:string}|\Closure, M: array<string, true>, p: string, w?: list<string>, n?: string, P?: int, r?: string, N?: list<string>, a?: list<array<string, mixed>>|null}
      */
     public function getRoute(int $idx): array;
 

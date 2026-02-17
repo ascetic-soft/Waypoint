@@ -20,9 +20,11 @@ use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
 final class TrieMatcher extends AbstractUrlMatcher
 {
     /**
-     * Array-based trie for trie-compatible routes (built lazily).
+     * Compact array-based trie for trie-compatible routes (built lazily).
      *
-     * @var array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>}|null
+     * Uses integer-indexed tuples: [IDX_STATIC, IDX_PARAM, IDX_ROUTES].
+     *
+     * @var list<mixed>|null
      */
     private ?array $trieArray = null;
 
@@ -103,7 +105,7 @@ final class TrieMatcher extends AbstractUrlMatcher
         $trimmed = ltrim($uri, '/');
         $segments = $trimmed === '' ? [] : explode('/', $trimmed);
 
-        /** @var array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>} $trieArray */
+        /** @var list<mixed> $trieArray */
         $trieArray = $this->trieArray;
 
         $result = RouteTrie::matchArray(

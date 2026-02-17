@@ -662,7 +662,7 @@ final class RouteTrieTest extends TestCase
     // ── Helpers ──────────────────────────────────────────────────
 
     /**
-     * @return array{trie: array<string, mixed>, routes: list<array<string, mixed>>}
+     * @return array{trie: list<mixed>, routes: list<array<string, mixed>>}
      */
     private function buildTrieData(): array
     {

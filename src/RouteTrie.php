@@ -20,6 +20,26 @@ namespace AsceticSoft\Waypoint;
  */
 final class RouteTrie
 {
+    // ── Compact trie-array tuple indices (for opcache-friendly serialisation) ──
+
+    /** Trie node tuple index: static children (`array<string, list<mixed>>`). */
+    public const IDX_STATIC = 0;
+
+    /** Trie node tuple index: param children (`list<list<mixed>>`). */
+    public const IDX_PARAM = 1;
+
+    /** Trie node tuple index: route indices (`list<int>`). */
+    public const IDX_ROUTES = 2;
+
+    /** Param-child tuple index: parameter name (`string`). */
+    public const PARAM_NAME = 0;
+
+    /** Param-child tuple index: anchored regex (`string`). */
+    public const PARAM_REGEX = 1;
+
+    /** Param-child tuple index: child trie node (`list<mixed>`). */
+    public const PARAM_NODE = 2;
+
     /** @var array<string, self> Static children keyed by literal segment value. */
     private array $staticChildren = [];
 
@@ -184,13 +204,22 @@ final class RouteTrie
     // ── Serialisation ────────────────────────────────────────────
 
     /**
-     * Serialize the trie node (and all descendants) to a plain PHP array.
+     * Serialize the trie node (and all descendants) to a compact PHP array.
      *
-     * Route references are stored as integer indices into a flat route list.
+     * The output uses integer-indexed tuples (packed arrays) for maximum
+     * opcache efficiency.  String keys are avoided so that PHP can use its
+     * packed array representation, which is both smaller in shared memory
+     * and faster to access at runtime.
+     *
+     * Node format:  `[IDX_STATIC, IDX_PARAM, IDX_ROUTES]`
+     * Param child:  `[PARAM_NAME, PARAM_REGEX, PARAM_NODE]`
+     *
+     * The compile-time-only `pattern` field is intentionally omitted from
+     * the serialised output — only the anchored `regex` is needed at runtime.
      *
      * @param array<int, int> $routeIndexMap Map of `spl_object_id(Route)` → integer index.
      *
-     * @return array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>}
+     * @return array{0: array<string, list<mixed>>, 1: list<list<mixed>>, 2: list<int>}
      */
     public function toArray(array $routeIndexMap): array
     {
@@ -199,10 +228,9 @@ final class RouteTrie
         $paramChildren = [];
         foreach ($this->paramChildren as $child) {
             $paramChildren[] = [
-                'paramName' => $child['paramName'],
-                'pattern'   => $child['pattern'],
-                'regex'     => $child['regex'],
-                'node'      => $child['node']->toArray($routeIndexMap),
+                $child['paramName'],
+                $child['regex'],
+                $child['node']->toArray($routeIndexMap),
             ];
         }
 
@@ -212,41 +240,51 @@ final class RouteTrie
         }
 
         return [
-            'static' => $staticChildren,
-            'param'  => $paramChildren,
-            'routes' => $routeIndices,
+            $staticChildren,
+            $paramChildren,
+            $routeIndices,
         ];
     }
 
     /**
-     * Restore a trie node (and all descendants) from a cached array.
+     * Restore a trie node (and all descendants) from a compact cached array.
      *
-     * @param array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>} $data
+     * Accepts the integer-indexed tuple format produced by {@see toArray()}.
+     *
+     * @param array{0: array<string, list<mixed>>, 1: list<list<mixed>>, 2: list<int>} $data
      * @param list<Route> $routeObjects Flat list of Route objects, indexed by cache position.
      */
     public static function fromArray(array $data, array $routeObjects): self
     {
         $node = new self();
 
-        foreach ($data['static'] as $key => $childData) {
-            if (!\is_array($childData)) {
-                throw new \RuntimeException('Expected array for static child data.');
-            }
-            /** @var array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>} $childData */
+        /** @var array<string, list<mixed>> $staticChildren */
+        $staticChildren = $data[self::IDX_STATIC];
+
+        foreach ($staticChildren as $key => $childData) {
+            /** @var array{0: array<string, list<mixed>>, 1: list<list<mixed>>, 2: list<int>} $childData */
             $node->staticChildren[$key] = self::fromArray($childData, $routeObjects);
         }
 
-        foreach ($data['param'] as $childData) {
-            /** @var array{paramName: string, pattern: string, regex: string, node: array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>}} $childData */
+        /** @var list<list<mixed>> $paramEntries */
+        $paramEntries = $data[self::IDX_PARAM];
+
+        foreach ($paramEntries as $childData) {
+            /** @var string $paramName */
+            $paramName = $childData[self::PARAM_NAME];
+            /** @var string $regex */
+            $regex = $childData[self::PARAM_REGEX];
+            /** @var array{0: array<string, list<mixed>>, 1: list<list<mixed>>, 2: list<int>} $childNode */
+            $childNode = $childData[self::PARAM_NODE];
             $node->paramChildren[] = [
-                'paramName' => $childData['paramName'],
-                'pattern'   => $childData['pattern'],
-                'regex'     => $childData['regex'],
-                'node'      => self::fromArray($childData['node'], $routeObjects),
+                'paramName' => $paramName,
+                'pattern'   => '',
+                'regex'     => $regex,
+                'node'      => self::fromArray($childNode, $routeObjects),
             ];
         }
 
-        foreach ($data['routes'] as $index) {
+        foreach ($data[self::IDX_ROUTES] as $index) {
             $node->routes[] = $routeObjects[$index];
         }
 
@@ -256,16 +294,19 @@ final class RouteTrie
     // ── Array-based matching (no object reconstruction) ─────────
 
     /**
-     * Match against a trie stored as a plain PHP array (no RouteTrie objects).
+     * Match against a trie stored as a compact PHP array (no RouteTrie objects).
      *
      * Uses an iterative depth-first search with an explicit stack instead of
      * recursion.  This eliminates per-level function-call overhead and the
      * associated parameter-array copies on the call stack.
      *
+     * The trie uses integer-indexed tuples (see {@see IDX_STATIC}, etc.)
+     * for maximum opcache efficiency and minimal per-lookup overhead.
+     *
      * Route data entries MUST store methods as a hash-map (`array<string, true>`)
      * under the `'methods'` key for O(1) method checks via `isset()`.
      *
-     * @param array<string, mixed>       $trieNode        Trie node from cache: {static, param, routes}
+     * @param list<mixed>                $trieNode        Compact trie node: [static, param, routes]
      * @param list<array<string, mixed>> $routeData       Flat array of route data from cache
      * @param string                     $method          Upper-case HTTP method
      * @param list<string>               $segments        URI segments
@@ -290,9 +331,8 @@ final class RouteTrie
         $stack = [[$trieNode, $depth, $params]];
 
         while ($stack !== []) {
-            /** @var array{0: array<string, mixed>, 1: int, 2: array<string, string>} $entry */
             $entry = \array_pop($stack);
-            /** @var array{static: array<string, array<string, mixed>>, param: list<array{paramName: string, pattern: string, regex: string, node: array<string, mixed>}>, routes: list<int>} $node */
+            /** @var array{0: array<string, list<mixed>>, 1: list<list<mixed>>, 2: list<int>} $node */
             $node = $entry[0];
             $d = $entry[1];
             /** @var array<string, string> $p */
@@ -300,7 +340,10 @@ final class RouteTrie
 
             // All segments consumed — check routes at this node.
             if ($d === $segCount) {
-                foreach ($node['routes'] as $routeIndex) {
+                /** @var list<int> $routeIndices */
+                $routeIndices = $node[self::IDX_ROUTES];
+
+                foreach ($routeIndices as $routeIndex) {
                     /** @var array<string, true> $methods */
                     $methods = $routeData[$routeIndex]['methods'];
 
@@ -320,22 +363,30 @@ final class RouteTrie
 
             // Push dynamic children in REVERSE order so that the first
             // (highest-priority) child is popped from the stack first.
-            $paramChildren = $node['param'];
+            /** @var list<list<mixed>> $paramChildren */
+            $paramChildren = $node[self::IDX_PARAM];
 
             for ($i = \count($paramChildren) - 1; $i >= 0; $i--) {
                 $child = $paramChildren[$i];
+                /** @var string $childRegex */
+                $childRegex = $child[self::PARAM_REGEX];
+                /** @var string $childName */
+                $childName = $child[self::PARAM_NAME];
 
-                if (preg_match($child['regex'], $seg)) {
+                if (preg_match($childRegex, $seg)) {
                     $cp = $p;
-                    $cp[$child['paramName']] = $seg;
-                    $stack[] = [$child['node'], $nextDepth, $cp];
+                    $cp[$childName] = $seg;
+                    $stack[] = [$child[self::PARAM_NODE], $nextDepth, $cp];
                 }
             }
 
             // Push the static child AFTER dynamic ones so it is popped
             // FIRST — static matches always have higher priority.
-            if (isset($node['static'][$seg])) {
-                $stack[] = [$node['static'][$seg], $nextDepth, $p];
+            /** @var array<string, list<mixed>> $staticChildren */
+            $staticChildren = $node[self::IDX_STATIC];
+
+            if (isset($staticChildren[$seg])) {
+                $stack[] = [$staticChildren[$seg], $nextDepth, $p];
             }
         }
 

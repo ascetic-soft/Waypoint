@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AsceticSoft\Waypoint\Cache;
 
 use AsceticSoft\Waypoint\Route;
+use AsceticSoft\Waypoint\RouteTrie;
 
 /**
  * Generates the compiled PHP matcher class as a string.
@@ -24,7 +25,7 @@ final class MatcherCodeGenerator
      * Generate the compiled matcher PHP code.
      *
      * @param list<array<string, mixed>> $routeData       Compact route data for each route.
-     * @param array<string, mixed>       $trieArray       Serialised trie (from RouteTrie::toArray).
+     * @param list<mixed>                $trieArray       Compact serialised trie (from RouteTrie::toArray).
      * @param list<int>                  $fallbackIndices Non-trie-compatible route indices.
      * @param array<string, int>         $staticTable     method:uri → route index.
      * @param array<string, true>        $staticOnlyUris  URIs that can only match via the static table.
@@ -84,7 +85,7 @@ final class MatcherCodeGenerator
      *  2. No fallback (non-trie-compatible) route regex matches the URI
      *     (otherwise a fallback route could match it).
      *
-     * @param array<string, mixed> $trieArray       Serialised trie.
+     * @param list<mixed>          $trieArray       Compact serialised trie.
      * @param array<string, int>   $staticTable     method:uri → route index.
      * @param list<Route>          $allRoutes       All routes (compiled).
      * @param list<int>            $fallbackIndices Non-trie-compatible route indices.
@@ -138,7 +139,7 @@ final class MatcherCodeGenerator
      * @param list<array<string, mixed>>  $routeData
      * @param array<string, int>          $staticTable
      * @param array<string, list<string>> $uriMethods
-     * @param array<string, mixed>        $trieArray
+     * @param list<mixed>                 $trieArray
      * @param list<int>                   $fallbackIndices
      * @param array<string, int>          $nameIndex
      * @param array<string, true>         $staticOnlyUris
@@ -214,31 +215,30 @@ final class MatcherCodeGenerator
         $code .= "        return \$this->walk(self::TRIE, \$method, \$segments, \\count(\$segments), 0, [], \$allowedMethods);\n";
         $code .= "    }\n\n";
 
-        // ── walk — generic trie traversal ──
-        $code .= "    /** @param array<string, mixed> \$node */\n";
+        // ── walk — compact trie traversal (integer-indexed tuples) ──
+        // Node: [0 => static children, 1 => param children, 2 => route indices]
+        // Param child: [0 => paramName, 1 => regex, 2 => child node]
         $code .= "    private function walk(array \$node, string \$m, array \$s, int \$n, int \$d, array \$p, array &\$am): ?array\n";
         $code .= "    {\n";
         $code .= "        if (\$d === \$n) {\n";
-        $code .= "            foreach (\$node['routes'] ?? [] as \$idx) {\n";
-        $code .= "                if (\\in_array(\$m, self::ROUTES[\$idx]['M'], true)) {\n";
+        $code .= "            foreach (\$node[2] as \$idx) {\n";
+        $code .= "                if (isset(self::ROUTES[\$idx]['M'][\$m])) {\n";
         $code .= "                    return [\$idx, \$p];\n";
         $code .= "                }\n";
-        $code .= "                foreach (self::ROUTES[\$idx]['M'] as \$method) {\n";
-        $code .= "                    \$am[\$method] = true;\n";
-        $code .= "                }\n";
+        $code .= "                \$am += self::ROUTES[\$idx]['M'];\n";
         $code .= "            }\n";
         $code .= "            return null;\n";
         $code .= "        }\n";
         $code .= "        \$seg = \$s[\$d];\n";
-        // Static child — hash lookup
-        $code .= "        if (isset(\$node['static'][\$seg])) {\n";
-        $code .= "            \$r = \$this->walk(\$node['static'][\$seg], \$m, \$s, \$n, \$d + 1, \$p, \$am);\n";
+        // Static child — hash lookup via node[0]
+        $code .= "        if (isset(\$node[0][\$seg])) {\n";
+        $code .= "            \$r = \$this->walk(\$node[0][\$seg], \$m, \$s, \$n, \$d + 1, \$p, \$am);\n";
         $code .= "            if (\$r !== null) { return \$r; }\n";
         $code .= "        }\n";
-        // Param children — regex
-        $code .= "        foreach (\$node['param'] ?? [] as \$child) {\n";
-        $code .= "            if (preg_match(\$child['regex'], \$seg)) {\n";
-        $code .= "                \$r = \$this->walk(\$child['node'], \$m, \$s, \$n, \$d + 1, \$p + [\$child['paramName'] => \$seg], \$am);\n";
+        // Param children — regex via node[1]
+        $code .= "        foreach (\$node[1] as \$child) {\n";
+        $code .= "            if (preg_match(\$child[1], \$seg)) {\n";
+        $code .= "                \$r = \$this->walk(\$child[2], \$m, \$s, \$n, \$d + 1, \$p + [\$child[0] => \$seg], \$am);\n";
         $code .= "                if (\$r !== null) { return \$r; }\n";
         $code .= "            }\n";
         $code .= "        }\n";
@@ -276,24 +276,25 @@ final class MatcherCodeGenerator
      * Walk the serialised trie along a URI's segments and check that no
      * parameterised children exist at any intermediate depth.
      *
-     * @param array<string, mixed> $trieNode Root trie node.
-     * @param string               $uri      Static URI (e.g. "/about").
+     * Uses the compact integer-indexed tuple format (see {@see RouteTrie}).
+     *
+     * @param list<mixed> $trieNode Root trie node.
+     * @param string      $uri      Static URI (e.g. "/about").
      */
     private function hasNoParamChildrenAlongPath(array $trieNode, string $uri): bool
     {
         $path = ltrim($uri, '/');
         $segments = $path === '' ? [] : explode('/', $path);
 
-        /** @var array{static: array<string, mixed>, param: list<mixed>, routes: list<int>} $node */
         $node = $trieNode;
 
         foreach ($segments as $segment) {
-            if ($node['param'] !== []) {
+            if ($node[RouteTrie::IDX_PARAM] !== []) {
                 return false;
             }
 
-            /** @var array<string, array{static: array<string, mixed>, param: list<mixed>, routes: list<int>}> $staticChildren */
-            $staticChildren = $node['static'];
+            /** @var array<string, list<mixed>> $staticChildren */
+            $staticChildren = $node[RouteTrie::IDX_STATIC];
 
             if (!isset($staticChildren[$segment])) {
                 // @codeCoverageIgnoreStart

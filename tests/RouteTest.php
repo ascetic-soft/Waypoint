@@ -358,7 +358,7 @@ final class RouteTest extends TestCase
     {
         $data = [
             'h' => ['App\\Controller\\UserController', 'show'],
-            'M' => ['GET'],
+            'M' => ['GET' => true],
             'p' => '/users/{id:\d+}',
         ];
 
@@ -377,7 +377,7 @@ final class RouteTest extends TestCase
     {
         $data = [
             'h' => ['App\\Controller\\UserController', 'show'],
-            'M' => ['GET', 'POST'],
+            'M' => ['GET' => true, 'POST' => true],
             'p' => '/users/{id:\d+}',
             'w' => ['App\\Middleware\\Auth'],
             'n' => 'users.show',
@@ -402,7 +402,7 @@ final class RouteTest extends TestCase
     {
         $data = [
             'h' => ['C', 'm'],
-            'M' => ['GET'],
+            'M' => ['GET' => true],
             'p' => '/items/{id:\d+}',
             'r' => '#^/items/(?P<id>\d+)$#',
             'N' => ['id'],
@@ -419,7 +419,7 @@ final class RouteTest extends TestCase
     {
         $data = [
             'h' => ['C', 'm'],
-            'M' => ['GET'],
+            'M' => ['GET' => true],
             'p' => '/items/{id:\d+}',
         ];
 

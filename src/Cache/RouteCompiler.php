@@ -118,7 +118,7 @@ final class RouteCompiler
 
         // ── Phase 2: array with trie ──
         if (isset($data['trie'])) {
-            /** @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
+            /** @var array{routes: list<array<string, mixed>>, trie: list<mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
             return new CompiledArrayMatcher($data);
         }
 
@@ -152,7 +152,7 @@ final class RouteCompiler
     {
         $compact = [
             'h' => $route->getHandler(),
-            'M' => $route->getMethods(),
+            'M' => \array_fill_keys($route->getMethods(), true),
             'p' => $route->getPattern(),
         ];
 

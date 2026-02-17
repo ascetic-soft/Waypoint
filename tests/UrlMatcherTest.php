@@ -928,7 +928,7 @@ final class UrlMatcherTest extends TestCase
     /**
      * Build Phase 2 cache data with static + dynamic routes.
      *
-     * @return array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>}
+     * @return array{routes: list<array<string, mixed>>, trie: list<mixed>, fallback: list<int>, staticTable: array<string, int>}
      */
     private function buildPhase2Data(): array
     {
@@ -942,7 +942,7 @@ final class UrlMatcherTest extends TestCase
     /**
      * Build Phase 2 cache data with a non-trie-compatible (fallback) route.
      *
-     * @return array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>}
+     * @return array{routes: list<array<string, mixed>>, trie: list<mixed>, fallback: list<int>, staticTable: array<string, int>}
      */
     private function buildPhase2DataWithFallback(): array
     {
@@ -954,7 +954,7 @@ final class UrlMatcherTest extends TestCase
     }
 
     /**
-     * @return array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>}
+     * @return array{routes: list<array<string, mixed>>, trie: list<mixed>, fallback: list<int>, staticTable: array<string, int>}
      */
     private function buildPhase2DataFromCollection(RouteCollection $source): array
     {
@@ -969,6 +969,7 @@ final class UrlMatcherTest extends TestCase
             $route->compile();
 
             $entry = $route->toArray();
+            $entry['methods'] = \array_fill_keys($entry['methods'], true);
             if (RouteTrie::isCompatible($route->getPattern())) {
                 $segments = RouteTrie::parsePattern($route->getPattern());
                 $trie->insert($route, $segments);

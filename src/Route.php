@@ -254,7 +254,7 @@ final class Route
      *
      * @param array{
      *     path: string,
-     *     methods: list<string>,
+     *     methods: array<int|string, string|true>,
      *     handler: array{0:class-string,1:string}|\Closure,
      *     middleware?: list<string>,
      *     name?: string,
@@ -266,9 +266,12 @@ final class Route
      */
     public static function fromArray(array $data): self
     {
+        /** @var list<string> $methods */
+        $methods = \array_is_list($data['methods']) ? $data['methods'] : \array_keys($data['methods']);
+
         $route = new self(
             pattern: $data['path'],
-            methods: $data['methods'],
+            methods: $methods,
             handler: $data['handler'],
             middleware: $data['middleware'] ?? [],
             name: $data['name'] ?? '',
@@ -289,9 +292,12 @@ final class Route
      * Compact keys: h=handler, M=methods, p=pattern, w=middleware, n=name,
      * P=priority, r=compiledRegex, N=parameterNames, a=argPlan.
      *
+     * Methods (`M`) are stored as a hash-map (`['GET' => true, ...]`) for
+     * O(1) lookup at runtime.  The constructor receives the keys as a list.
+     *
      * @param array{
      *     h: array{0:class-string,1:string}|\Closure,
-     *     M: list<string>,
+     *     M: array<string, true>,
      *     p: string,
      *     w?: list<string>,
      *     n?: string,
@@ -305,7 +311,7 @@ final class Route
     {
         $route = new self(
             pattern: $data['p'],
-            methods: $data['M'],
+            methods: \array_keys($data['M']),
             handler: $data['h'],
             middleware: $data['w'] ?? [],
             name: $data['n'] ?? '',

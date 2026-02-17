@@ -294,7 +294,7 @@ final class RouteCompilerTest extends TestCase
 
         $data = $matcher->getRoute(0);
         self::assertSame(['C', 'm'], $data['h']);
-        self::assertSame(['GET'], $data['M']);
+        self::assertSame(['GET' => true], $data['M']);
         self::assertSame('/about', $data['p']);
         self::assertSame('about', $data['n']);
     }
@@ -375,7 +375,9 @@ final class RouteCompilerTest extends TestCase
         foreach ($allRoutes as $i => $route) {
             $routeIndexMap[spl_object_id($route)] = $i;
             $route->compile();
-            $routeData[] = $route->toArray();
+            $data = $route->toArray();
+            $data['methods'] = \array_fill_keys($data['methods'], true);
+            $routeData[] = $data;
             if (\AsceticSoft\Waypoint\RouteTrie::isCompatible($route->getPattern())) {
                 $segments = \AsceticSoft\Waypoint\RouteTrie::parsePattern($route->getPattern());
                 $trie->insert($route, $segments);
