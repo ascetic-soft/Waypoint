@@ -8,12 +8,13 @@
 [![PHP Version](https://img.shields.io/packagist/dependency-v/ascetic-soft/Waypoint/php)](https://packagist.org/packages/ascetic-soft/Waypoint)
 [![License](https://img.shields.io/packagist/l/ascetic-soft/Waypoint)](https://packagist.org/packages/ascetic-soft/Waypoint)
 
-A lightweight PSR-15 compatible PHP router with attribute-based routing, middleware pipeline, prefix-trie matching, and route caching.
+A lightweight PSR-15 compatible PHP router with attribute-based routing, middleware pipeline, prefix-trie matching, and route caching. Zero required dependencies — the core works as pure PHP; PSR packages are optional.
 
 **Documentation:** [English](https://ascetic-soft.github.io/Waypoint/) | [Русский](https://ascetic-soft.github.io/Waypoint/ru/)
 
 ## Features
 
+- **Zero required dependencies** — the core matching engine (route registration, compilation, trie matching, URL generation, diagnostics) works as pure PHP; PSR packages are optional
 - **PSR-15 compliant** — implements `RequestHandlerInterface`, works with any PSR-7 / PSR-15 stack
 - **Attribute-based routing** — declare routes with PHP 8 `#[Route]` attributes directly on controllers
 - **Fast prefix-trie matching** — static segments resolved via O(1) hash-map lookups; dynamic segments tested only when necessary
@@ -24,6 +25,7 @@ A lightweight PSR-15 compatible PHP router with attribute-based routing, middlew
 - **URL generation** — reverse routing from named routes and parameters
 - **Route diagnostics** — detect duplicate paths, duplicate names, and shadowed routes
 - **Priority-based matching** — control which route wins when patterns overlap
+- **Clean architecture** — separate `RouteRegistrar` for route building and `Router` for PSR-15 dispatching
 
 ## Requirements
 
@@ -36,21 +38,30 @@ A lightweight PSR-15 compatible PHP router with attribute-based routing, middlew
 composer require ascetic-soft/waypoint
 ```
 
+For PSR-15 request handling, also install the PSR packages:
+
+```bash
+composer require psr/http-message psr/http-server-handler psr/http-server-middleware psr/container
+```
+
 ## Quick Start
 
 ```php
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use Nyholm\Psr7\ServerRequest;
 
-$router = new Router($container); // any PSR-11 container
-
-$router->get('/hello/{name}', function (string $name) use ($responseFactory) {
+// 1. Register routes
+$registrar = new RouteRegistrar();
+$registrar->get('/hello/{name}', function (string $name) use ($responseFactory) {
     $response = $responseFactory->createResponse();
     $response->getBody()->write("Hello, {$name}!");
     return $response;
 });
 
-$request  = new ServerRequest('GET', '/hello/world');
+// 2. Create the router and handle requests
+$router  = new Router($container, $registrar->getRouteCollection());
+$request = new ServerRequest('GET', '/hello/world');
 $response = $router->handle($request);
 ```
 
@@ -58,20 +69,30 @@ $response = $router->handle($request);
 
 ### Manual Route Registration
 
-Register routes with the fluent API. Shortcut methods are provided for common HTTP verbs:
+Use `RouteRegistrar` to register routes with a fluent API. Shortcut methods are provided for common HTTP verbs:
 
 ```php
+use AsceticSoft\Waypoint\RouteRegistrar;
+
+$registrar = new RouteRegistrar();
+
 // Full form
-$router->addRoute('/users', [UserController::class, 'list'], methods: ['GET']);
+$registrar->addRoute('/users', [UserController::class, 'list'], methods: ['GET']);
 
 // Shortcuts
-$router->get('/users',          [UserController::class, 'list']);
-$router->post('/users',         [UserController::class, 'create']);
-$router->put('/users/{id}',     [UserController::class, 'update']);
-$router->delete('/users/{id}',  [UserController::class, 'destroy']);
+$registrar->get('/users',          [UserController::class, 'list']);
+$registrar->post('/users',         [UserController::class, 'create']);
+$registrar->put('/users/{id}',     [UserController::class, 'update']);
+$registrar->delete('/users/{id}',  [UserController::class, 'destroy']);
 
 // Any other HTTP method (PATCH, OPTIONS, etc.)
-$router->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PATCH']);
+$registrar->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PATCH']);
+```
+
+Once routes are registered, pass the collection to `Router`:
+
+```php
+$router = new Router($container, $registrar->getRouteCollection());
 ```
 
 Each method accepts optional parameters:
@@ -90,19 +111,19 @@ Parameters use FastRoute-style placeholders:
 
 ```php
 // Basic parameter — matches any non-slash segment
-$router->get('/users/{id}', [UserController::class, 'show']);
+$registrar->get('/users/{id}', [UserController::class, 'show']);
 
 // Constrained parameter — only digits
-$router->get('/users/{id:\d+}', [UserController::class, 'show']);
+$registrar->get('/users/{id:\d+}', [UserController::class, 'show']);
 
 // Multiple parameters
-$router->get('/posts/{year:\d{4}}/{slug}', [PostController::class, 'show']);
+$registrar->get('/posts/{year:\d{4}}/{slug}', [PostController::class, 'show']);
 ```
 
 Parameters are automatically injected into the handler by name, with type coercion for scalar types:
 
 ```php
-$router->get('/users/{id:\d+}', function (int $id) {
+$registrar->get('/users/{id:\d+}', function (int $id) {
     // $id is automatically cast to int
 });
 ```
@@ -139,17 +160,19 @@ The class-level `#[Route]` sets a path prefix and shared middleware. Method-leve
 **Loading attributes:**
 
 ```php
+$registrar = new RouteRegistrar();
+
 // Load specific controller classes
-$router->loadAttributes(
+$registrar->loadAttributes(
     UserController::class,
     PostController::class,
 );
 
 // Or scan an entire directory
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
 
 // Optionally filter by filename pattern (e.g. only *Controller.php files)
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 #### Attribute Parameters
@@ -167,15 +190,15 @@ $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controlle
 Group related routes under a shared prefix and middleware:
 
 ```php
-$router->group('/api', function (Router $router) {
+$registrar->group('/api', function (RouteRegistrar $registrar) {
 
-    $router->group('/v1', function (Router $router) {
-        $router->get('/users', [UserController::class, 'list']);
+    $registrar->group('/v1', function (RouteRegistrar $registrar) {
+        $registrar->get('/users', [UserController::class, 'list']);
         // Matches: /api/v1/users
     });
 
-    $router->group('/v2', function (Router $router) {
-        $router->get('/users', [UserV2Controller::class, 'list']);
+    $registrar->group('/v2', function (RouteRegistrar $registrar) {
+        $registrar->get('/users', [UserV2Controller::class, 'list']);
         // Matches: /api/v2/users
     });
 
@@ -188,17 +211,17 @@ Groups can be nested. Prefixes and middleware accumulate from outer to inner gro
 
 Waypoint supports PSR-15 middleware at two levels:
 
-**Global middleware** — runs for every matched route:
+**Global middleware** — added to the `Router`, runs for every matched route:
 
 ```php
 $router->addMiddleware(CorsMiddleware::class);
 $router->addMiddleware(new RateLimitMiddleware(limit: 100));
 ```
 
-**Route-level middleware** — applied to specific routes:
+**Route-level middleware** — applied to specific routes during registration:
 
 ```php
-$router->get('/admin/dashboard', [AdminController::class, 'dashboard'],
+$registrar->get('/admin/dashboard', [AdminController::class, 'dashboard'],
     middleware: [AdminAuthMiddleware::class],
 );
 ```
@@ -232,25 +255,35 @@ public function show(
 Compile routes to a PHP file for zero-overhead loading in production:
 
 ```php
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
+
 // During deployment / cache warm-up
-$router->compileTo(__DIR__ . '/cache/routes.php');
+$registrar = new RouteRegistrar();
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+$compiler = new RouteCompiler();
+$compiler->compile($registrar->getRouteCollection(), __DIR__ . '/cache/routes.php');
 ```
 
 ```php
 // At runtime — load from cache
 $cacheFile = __DIR__ . '/cache/routes.php';
+$compiler  = new RouteCompiler();
 
 $router = new Router($container);
 
-if (file_exists($cacheFile)) {
+if ($compiler->isFresh($cacheFile)) {
     $router->loadCache($cacheFile);
 } else {
-    $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-    $router->compileTo($cacheFile);
+    $registrar = new RouteRegistrar();
+    $registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+    $compiler->compile($registrar->getRouteCollection(), $cacheFile);
+
+    $router = new Router($container, $registrar->getRouteCollection());
 }
 ```
 
-The compiler generates a self-contained PHP class (Phase 3 format) with match expressions and pre-computed argument resolution plans. The resulting file loads through OPcache with zero overhead, bypassing all Reflection and attribute parsing at runtime. URL generation and route diagnostics work transparently with cached routes.
+The compiler generates a self-contained PHP class with match expressions and pre-computed argument resolution plans. The resulting file loads through OPcache with zero overhead, bypassing all Reflection and attribute parsing at runtime. URL generation and route diagnostics work transparently with cached routes.
 
 ### Route Diagnostics
 
@@ -280,18 +313,20 @@ The diagnostic report detects:
 
 ### URL Generation
 
-Generate URLs from named routes (reverse routing). Assign names when registering routes, then use `generate()` to build paths:
+Generate URLs from named routes (reverse routing). Assign names when registering routes, then use `getUrlGenerator()->generate()` to build paths:
 
 ```php
 // Register named routes
-$router->get('/users',          [UserController::class, 'list'], name: 'users.list');
-$router->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+$registrar->get('/users',          [UserController::class, 'list'], name: 'users.list');
+$registrar->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+
+$router = new Router($container, $registrar->getRouteCollection());
 
 // Generate URLs
-$url = $router->generate('users.show', ['id' => 42]);
+$url = $router->getUrlGenerator()->generate('users.show', ['id' => 42]);
 // => /users/42
 
-$url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
+$url = $router->getUrlGenerator()->generate('users.list', query: ['page' => 2, 'limit' => 10]);
 // => /users?page=2&limit=10
 ```
 
@@ -304,7 +339,7 @@ Set a base URL (scheme + host) to generate fully-qualified URLs:
 ```php
 $router->setBaseUrl('https://example.com');
 
-$url = $router->generate('users.show', ['id' => 42], absolute: true);
+$url = $router->getUrlGenerator()->generate('users.show', ['id' => 42], absolute: true);
 // => https://example.com/users/42
 ```
 
@@ -353,17 +388,19 @@ try {
 ## Architecture
 
 ```
-Router  (PSR-15 RequestHandlerInterface)
+RouteRegistrar      — fluent route registration, attribute loading, groups
+Router              (PSR-15 RequestHandlerInterface)
 ├── RouteCollection
 │   ├── RouteTrie           — prefix-tree for fast segment matching
 │   └── Route[]             — fallback linear matching for complex patterns
-├── AttributeRouteLoader    — reads #[Route] attributes via Reflection
 ├── MiddlewarePipeline      — FIFO PSR-15 middleware execution
 ├── RouteHandler            — invokes controller with DI
 ├── UrlGenerator            — reverse routing (name + params → URL)
 ├── RouteCompiler           — compiles/loads route cache
 └── RouteDiagnostics        — conflict detection and reporting
 ```
+
+The `RouteRegistrar` handles route building (manual registration, attribute loading, groups) and produces a `RouteCollection`. The `Router` is a pure PSR-15 `RequestHandlerInterface` responsible only for matching and dispatching.
 
 The `RouteTrie` handles the majority of routes with O(1) per-segment lookups. Routes with patterns that cannot be expressed in the trie (mixed static/parameter segments like `prefix-{name}.txt`, or cross-segment captures) automatically fall back to linear regex matching.
 
