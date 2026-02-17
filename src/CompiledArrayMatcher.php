@@ -41,6 +41,16 @@ final class CompiledArrayMatcher extends AbstractUrlMatcher
     private ?array $compiledNameMap = null;
 
     /**
+     * Route data with methods converted to hash-maps for O(1) lookup.
+     *
+     * Built lazily from the compiled data on first use by
+     * {@see getProcessedRouteData()}.
+     *
+     * @var list<array<string, mixed>>|null
+     */
+    private ?array $processedRouteData = null;
+
+    /**
      * @param array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $compiledData
      */
     public function __construct(
@@ -85,7 +95,7 @@ final class CompiledArrayMatcher extends AbstractUrlMatcher
 
         $result = RouteTrie::matchArray(
             $this->compiledData['trie'],
-            $this->compiledData['routes'],
+            $this->getProcessedRouteData(),
             $method,
             $segments,
             0,
@@ -207,5 +217,37 @@ final class CompiledArrayMatcher extends AbstractUrlMatcher
         }
 
         return $this->compiledFallbackMap;
+    }
+
+    // ── Route data processing ──────────────────────────────────
+
+    /**
+     * Get route data with methods converted to hash-maps for O(1) lookup.
+     *
+     * The compiled data may store methods as a list (`['GET', 'POST']`).
+     * {@see RouteTrie::matchArray()} expects a hash-map (`['GET' => true]`)
+     * for efficient `isset()` checks.  This method lazily converts the format.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function getProcessedRouteData(): array
+    {
+        if ($this->processedRouteData !== null) {
+            return $this->processedRouteData;
+        }
+
+        $processed = [];
+
+        foreach ($this->compiledData['routes'] as $route) {
+            if (isset($route['methods']) && \is_array($route['methods']) && \array_is_list($route['methods'])) {
+                $route['methods'] = \array_fill_keys($route['methods'], true);
+            }
+
+            $processed[] = $route;
+        }
+
+        $this->processedRouteData = $processed;
+
+        return $processed;
     }
 }

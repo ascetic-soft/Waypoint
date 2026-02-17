@@ -229,7 +229,9 @@ final class RouteTrie
         $node = new self();
 
         foreach ($data['static'] as $key => $childData) {
-            \assert(\is_array($childData));
+            if (!\is_array($childData)) {
+                throw new \RuntimeException('Expected array for static child data.');
+            }
             /** @var array{static: array<string, mixed>, param: list<array<string, mixed>>, routes: list<int>} $childData */
             $node->staticChildren[$key] = self::fromArray($childData, $routeObjects);
         }
@@ -256,8 +258,12 @@ final class RouteTrie
     /**
      * Match against a trie stored as a plain PHP array (no RouteTrie objects).
      *
-     * Used by {@see RouteCollection::matchFromCompiled()} to avoid
-     * reconstructing the full RouteTrie object graph on every request.
+     * Uses an iterative depth-first search with an explicit stack instead of
+     * recursion.  This eliminates per-level function-call overhead and the
+     * associated parameter-array copies on the call stack.
+     *
+     * Route data entries MUST store methods as a hash-map (`array<string, true>`)
+     * under the `'methods'` key for O(1) method checks via `isset()`.
      *
      * @param array<string, mixed>       $trieNode        Trie node from cache: {static, param, routes}
      * @param list<array<string, mixed>> $routeData       Flat array of route data from cache
@@ -278,73 +284,58 @@ final class RouteTrie
         array $params,
         array &$allowedMethods,
     ): ?array {
-        // All segments consumed — check routes at this node.
-        if ($depth === \count($segments)) {
-            /** @var list<int> $routeIndices */
-            $routeIndices = $trieNode['routes'];
+        $segCount = \count($segments);
 
-            foreach ($routeIndices as $routeIndex) {
-                /** @var list<string> $methods */
-                $methods = $routeData[$routeIndex]['methods'];
+        // Explicit DFS stack: each entry is [node, depth, params].
+        $stack = [[$trieNode, $depth, $params]];
 
-                if (\in_array($method, $methods, true)) {
-                    return ['index' => $routeIndex, 'params' => $params];
+        while ($stack !== []) {
+            /** @var array{0: array<string, mixed>, 1: int, 2: array<string, string>} $entry */
+            $entry = \array_pop($stack);
+            /** @var array{static: array<string, array<string, mixed>>, param: list<array{paramName: string, pattern: string, regex: string, node: array<string, mixed>}>, routes: list<int>} $node */
+            $node = $entry[0];
+            $d = $entry[1];
+            /** @var array<string, string> $p */
+            $p = $entry[2];
+
+            // All segments consumed — check routes at this node.
+            if ($d === $segCount) {
+                foreach ($node['routes'] as $routeIndex) {
+                    /** @var array<string, true> $methods */
+                    $methods = $routeData[$routeIndex]['methods'];
+
+                    if (isset($methods[$method])) {
+                        return ['index' => $routeIndex, 'params' => $p];
+                    }
+
+                    // Merge allowed methods for 405 — single array union.
+                    $allowedMethods += $methods;
                 }
 
-                foreach ($methods as $m) {
-                    $allowedMethods[$m] = true;
+                continue;
+            }
+
+            $seg = $segments[$d];
+            $nextDepth = $d + 1;
+
+            // Push dynamic children in REVERSE order so that the first
+            // (highest-priority) child is popped from the stack first.
+            $paramChildren = $node['param'];
+
+            for ($i = \count($paramChildren) - 1; $i >= 0; $i--) {
+                $child = $paramChildren[$i];
+
+                if (preg_match($child['regex'], $seg)) {
+                    $cp = $p;
+                    $cp[$child['paramName']] = $seg;
+                    $stack[] = [$child['node'], $nextDepth, $cp];
                 }
             }
 
-            return null;
-        }
-
-        $segment = $segments[$depth];
-
-        // 1. Static child — hash lookup.
-        /** @var array<string, array<string, mixed>> $staticChildren */
-        $staticChildren = $trieNode['static'];
-
-        if (isset($staticChildren[$segment])) {
-            $staticChild = $staticChildren[$segment];
-
-            $result = self::matchArray(
-                $staticChild,
-                $routeData,
-                $method,
-                $segments,
-                $depth + 1,
-                $params,
-                $allowedMethods,
-            );
-
-            if ($result !== null) {
-                return $result;
-            }
-        }
-
-        // 2. Dynamic children — regex match.
-        /** @var list<array{paramName: string, pattern: string, regex: string, node: array<string, mixed>}> $paramChildren */
-        $paramChildren = $trieNode['param'];
-
-        foreach ($paramChildren as $child) {
-            if (preg_match($child['regex'], $segment)) {
-                $childParams = $params;
-                $childParams[$child['paramName']] = $segment;
-
-                $result = self::matchArray(
-                    $child['node'],
-                    $routeData,
-                    $method,
-                    $segments,
-                    $depth + 1,
-                    $childParams,
-                    $allowedMethods,
-                );
-
-                if ($result !== null) {
-                    return $result;
-                }
+            // Push the static child AFTER dynamic ones so it is popped
+            // FIRST — static matches always have higher priority.
+            if (isset($node['static'][$seg])) {
+                $stack[] = [$node['static'][$seg], $nextDepth, $p];
             }
         }
 

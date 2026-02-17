@@ -621,7 +621,7 @@ final class RouteTrieTest extends TestCase
         $trie->insert($route, RouteTrie::parsePattern('/'));
 
         $trieArray = $trie->toArray($routeIndexMap);
-        $routeData = [$route->toArray()];
+        $routeData = [self::routeToMatchData($route)];
 
         $allowedMethods = [];
         $result = RouteTrie::matchArray($trieArray, $routeData, 'GET', [], 0, [], $allowedMethods);
@@ -650,7 +650,7 @@ final class RouteTrieTest extends TestCase
         $trie->insert($staticRoute, RouteTrie::parsePattern('/users/profile'));
 
         $trieArray = $trie->toArray($routeIndexMap);
-        $routeData = [$dynamicRoute->toArray(), $staticRoute->toArray()];
+        $routeData = [self::routeToMatchData($dynamicRoute), self::routeToMatchData($staticRoute)];
 
         $allowedMethods = [];
         $result = RouteTrie::matchArray($trieArray, $routeData, 'GET', ['users', 'profile'], 0, [], $allowedMethods);
@@ -682,7 +682,22 @@ final class RouteTrieTest extends TestCase
 
         return [
             'trie' => $trie->toArray($routeIndexMap),
-            'routes' => array_map(static fn (Route $r) => $r->toArray(), $routes),
+            'routes' => array_map(static fn (Route $r) => self::routeToMatchData($r), $routes),
         ];
+    }
+
+    /**
+     * Convert a Route to the array format expected by {@see RouteTrie::matchArray()}.
+     *
+     * Methods are stored as a hash-map (`['GET' => true]`) for O(1) lookup.
+     *
+     * @return array<string, mixed>
+     */
+    private static function routeToMatchData(Route $route): array
+    {
+        $data = $route->toArray();
+        $data['methods'] = \array_fill_keys($data['methods'], true);
+
+        return $data;
     }
 }

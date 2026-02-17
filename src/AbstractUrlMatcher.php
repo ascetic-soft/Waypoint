@@ -27,7 +27,10 @@ abstract class AbstractUrlMatcher implements UrlMatcherInterface
      */
     public function match(string $method, string $uri): RouteMatchResult
     {
-        $method = strtoupper($method);
+        // Fast path: skip strtoupper() for already-uppercase methods (common case).
+        if (!\ctype_upper($method)) {
+            $method = \strtoupper($method);
+        }
 
         try {
             return $this->performMatch($method, $uri);

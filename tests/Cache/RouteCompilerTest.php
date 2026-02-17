@@ -170,7 +170,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $result = $matcher->matchStatic('GET', '/about');
         self::assertNotNull($result);
@@ -187,7 +189,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         self::assertNull($matcher->matchStatic('POST', '/about'));
         self::assertNull($matcher->matchStatic('GET', '/nonexistent'));
@@ -203,7 +207,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $allowedMethods = [];
         $result = $matcher->matchDynamic('GET', '/users/42', $allowedMethods);
@@ -221,7 +227,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $allowedMethods = [];
         self::assertNull($matcher->matchDynamic('GET', '/nonexistent', $allowedMethods));
@@ -238,7 +246,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $allowedMethods = [];
         $result = $matcher->matchDynamic('DELETE', '/users/42', $allowedMethods);
@@ -258,7 +268,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $methods = $matcher->staticMethods('/about');
         self::assertContains('GET', $methods);
@@ -276,7 +288,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertSame(['C', 'm'], $data['h']);
@@ -296,7 +310,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         self::assertSame(2, $matcher->getRouteCount());
     }
@@ -312,7 +328,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $fallback = $matcher->getFallbackIndices();
         self::assertNotEmpty($fallback);
@@ -329,7 +347,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         self::assertSame(0, $matcher->findByName('about'));
         self::assertSame(1, $matcher->findByName('contact'));
@@ -437,7 +457,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         // argPlan should be present as 'a' key
@@ -460,7 +482,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -483,7 +507,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -509,7 +535,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayNotHasKey('a', $data);
@@ -525,7 +553,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         // 'w' key should not exist when middleware is empty
@@ -542,7 +572,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertSame(['App\\MW\\Auth'], $data['w']);
@@ -558,7 +590,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertSame(10, $data['P']);
@@ -574,7 +608,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayNotHasKey('P', $data);
@@ -590,7 +626,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayNotHasKey('n', $data);
@@ -606,7 +644,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayNotHasKey('r', $data);
@@ -623,7 +663,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('r', $data);
@@ -641,7 +683,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $allowedMethods = [];
         $result = $matcher->matchDynamic('GET', '/', $allowedMethods);
@@ -709,7 +753,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -738,7 +784,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -769,7 +817,9 @@ final class RouteCompilerTest extends TestCase
         self::assertFileExists($this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -799,7 +849,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -828,7 +880,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         // argPlan should be null (not compiled) because of nullable service
@@ -856,7 +910,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         // Ambiguous — fall back to Reflection at runtime
@@ -884,7 +940,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -913,7 +971,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayNotHasKey('a', $data);
@@ -934,7 +994,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayNotHasKey('a', $data);
@@ -955,7 +1017,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);
@@ -980,7 +1044,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         // /about should NOT be static-only because /{page} has param children at root.
         self::assertFalse($matcher->isStaticOnly('/about'));
@@ -999,7 +1065,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         // /files/readme.txt should NOT be static-only because the fallback route matches it.
         self::assertFalse($matcher->isStaticOnly('/files/readme.txt'));
@@ -1020,7 +1088,9 @@ final class RouteCompilerTest extends TestCase
         $compiler->compile($collection, $this->cacheFile);
 
         $matcher = include $this->cacheFile;
-        \assert($matcher instanceof CompiledMatcherInterface);
+        if (!$matcher instanceof CompiledMatcherInterface) {
+            throw new \RuntimeException('Expected CompiledMatcherInterface instance.');
+        }
 
         $data = $matcher->getRoute(0);
         self::assertArrayHasKey('a', $data);

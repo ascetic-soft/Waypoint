@@ -112,7 +112,9 @@ final class RouteCompiler
             return new CompiledClassMatcher($data);
         }
 
-        \assert(\is_array($data));
+        if (!\is_array($data)) {
+            throw new \RuntimeException('Expected array from cache file.');
+        }
 
         // ── Phase 2: array with trie ──
         if (isset($data['trie'])) {

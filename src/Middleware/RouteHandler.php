@@ -43,14 +43,18 @@ final readonly class RouteHandler implements RequestHandlerInterface
         [$className, $methodName] = $this->handler;
 
         $controller = $this->container->get($className);
-        \assert(\is_object($controller));
+        if (!\is_object($controller)) {
+            throw new \RuntimeException(\sprintf('Expected object from container for "%s".', $className));
+        }
 
         if ($this->argPlan !== null) {
             // Fast path: use pre-computed argument plan — no Reflection.
             $args = $this->resolveFromPlan($this->argPlan, $request);
 
             $response = $controller->$methodName(...$args);
-            \assert($response instanceof ResponseInterface);
+            if (!$response instanceof ResponseInterface) {
+                throw new \RuntimeException('Controller action must return a ResponseInterface instance.');
+            }
 
             return $response;
         }
@@ -61,7 +65,9 @@ final readonly class RouteHandler implements RequestHandlerInterface
 
         // Direct method call instead of $reflection->invokeArgs().
         $response = $controller->$methodName(...$args);
-        \assert($response instanceof ResponseInterface);
+        if (!$response instanceof ResponseInterface) {
+            throw new \RuntimeException('Controller action must return a ResponseInterface instance.');
+        }
 
         return $response;
     }
@@ -72,7 +78,9 @@ final readonly class RouteHandler implements RequestHandlerInterface
         $args = $this->resolveArguments($reflection, $request);
 
         $response = $closure(...$args);
-        \assert($response instanceof ResponseInterface);
+        if (!$response instanceof ResponseInterface) {
+            throw new \RuntimeException('Closure handler must return a ResponseInterface instance.');
+        }
 
         return $response;
     }
