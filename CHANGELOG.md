@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-02-18
+
+### Changed
+
+- **Trie serialization optimized for OPcache** — string-keyed trie nodes replaced with integer-indexed tuples for packed array representation in shared memory; HTTP methods stored as hash-maps at compile time, enabling O(1) `isset()` checks instead of O(n) `in_array()` in the generated `walk()`.
+- **TrieMatcher / RouteTrie refactored** — improved internal structure, inlined hot-path logic, reduced function-call overhead.
+- **RouteHandler** and **CompiledArrayMatcher** internal cleanup and simplification.
+
 ## [1.2.0] - 2026-02-17
 
 ### Changed
@@ -133,7 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive README with usage examples.
 - PHPUnit test suite covering core components.
 
-[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/ascetic-soft/Waypoint/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.3...v1.1.4
