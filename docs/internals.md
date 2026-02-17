@@ -27,20 +27,20 @@ When `Router::handle()` is called with an incoming PSR-7 request, the following 
 sequenceDiagram
     participant Client
     participant Router
-    participant RouteCollection
+    participant UrlMatcher
     participant MiddlewarePipeline
     participant RouteHandler
     participant Controller
 
     Client->>Router: handle(request)
-    Router->>RouteCollection: match(method, uri)
+    Router->>UrlMatcher: match(method, uri)
 
     alt No match
-        RouteCollection-->>Router: RouteNotFoundException
+        UrlMatcher-->>Router: RouteNotFoundException
     else Method not allowed
-        RouteCollection-->>Router: MethodNotAllowedException
+        UrlMatcher-->>Router: MethodNotAllowedException
     else Match found
-        RouteCollection-->>Router: RouteMatchResult(route, params)
+        UrlMatcher-->>Router: RouteMatchResult(route, params)
     end
 
     Router->>MiddlewarePipeline: handle(request)
@@ -55,7 +55,7 @@ sequenceDiagram
     Router-->>Client: response
 ```
 
-1. **Route matching** — `RouteCollection::match()` finds a matching route for the HTTP method and URI.
+1. **Route matching** — `UrlMatcherInterface::match()` finds a matching route for the HTTP method and URI.
 2. **Middleware pipeline** — global and route-level middleware execute in FIFO order.
 3. **Controller invocation** — `RouteHandler` resolves parameters via DI and calls the controller.
 4. **Response** — the response bubbles back up through the middleware stack.
@@ -170,6 +170,12 @@ function match(method, segments, depth, params, allowedMethods):
 - The trie naturally handles priority: routes are inserted in priority order, and the first match wins.
 - The algorithm is depth-first — it fully explores each branch before backtracking.
 
+### Trie Serialization (OPcache)
+
+When routes are compiled via `RouteCompiler`, the trie is serialized using **integer-indexed tuples** instead of string-keyed associative arrays. This produces packed arrays that are stored more efficiently in OPcache shared memory.
+
+HTTP methods at leaf nodes are stored as **hash-maps** (`['GET' => true, 'POST' => true]`) at compile time, enabling O(1) `isset()` checks instead of O(n) `in_array()` during the generated `walk()`.
+
 ---
 
 ## Middleware Pipeline
@@ -282,26 +288,25 @@ The `RouteCompiler` transforms the runtime route collection into an optimized PH
 
 ```mermaid
 flowchart TD
-    A["Router::compileTo(file)"] --> B["RouteCompiler::compile()"]
-    B --> C["Sort routes by priority"]
-    C --> D["Classify routes"]
+    A["RouteCompiler::compile(routes, file)"] --> B["Sort routes by priority"]
+    B --> C["Classify routes"]
 
-    D --> E["Static routes → hash table"]
-    D --> F["Trie-compatible → prefix-trie"]
-    D --> G["Complex patterns → fallback list"]
+    C --> D["Static routes → hash table"]
+    C --> E["Trie-compatible → prefix-trie"]
+    C --> F["Complex patterns → fallback list"]
 
-    E --> H["Generate matchStatic() method"]
-    F --> I["Generate matchDynamic() method"]
-    G --> J["Serialize fallback indices"]
+    D --> G["Generate matchStatic() method"]
+    E --> H["Generate matchDynamic() method"]
+    F --> I["Serialize fallback indices"]
 
-    H --> K["Generate PHP class file"]
-    I --> K
-    J --> K
+    G --> J["Generate PHP class file"]
+    H --> J
+    I --> J
 
-    K --> L["Pre-compute argPlans (no Reflection at runtime)"]
-    L --> M["Write file implementing CompiledMatcherInterface"]
+    J --> K["Pre-compute argPlans (no Reflection at runtime)"]
+    K --> L["Write file implementing CompiledMatcherInterface"]
 
-    style M fill:#d4edda,stroke:#28a745
+    style L fill:#d4edda,stroke:#28a745
 ```
 
 The generated class implements `CompiledMatcherInterface` with these key methods:
@@ -319,6 +324,8 @@ The generated class implements `CompiledMatcherInterface` with these key methods
 
 **Key optimizations:**
 - **OPcache-friendly** — the file is a plain PHP class stored in shared memory.
+- **Integer-indexed tuples** — trie nodes use packed integer-indexed arrays instead of string-keyed associative arrays, reducing memory footprint in shared memory.
+- **Pre-computed method hash-maps** — HTTP methods stored as `['GET' => true]` hash-maps at compile time, enabling O(1) `isset()` checks instead of O(n) `in_array()`.
 - **No Reflection** — argument resolution plans are pre-computed at compile time.
 - **Lazy hydration** — `Route` objects are constructed only for matched routes, not all routes.
 - **Match expressions** — PHP 8 `match` is used for static route dispatch (compiled to a hash table by the engine).
@@ -359,10 +366,15 @@ Each stage is cheaper than the next. Most files are filtered in stages 1-2, so e
 
 ```mermaid
 flowchart TB
-    subgraph Router["Router (PSR-15 RequestHandlerInterface)"]
+    subgraph Registration["RouteRegistrar"]
+        direction TB
+        ARL["AttributeRouteLoader"]
+        GROUPS["Group/Prefix support"]
+    end
+
+    subgraph Dispatch["Router (PSR-15 RequestHandlerInterface)"]
         direction TB
         RC["RouteCollection"]
-        ARL["AttributeRouteLoader"]
         MP["MiddlewarePipeline"]
         RH["RouteHandler"]
         UG["UrlGenerator"]
@@ -377,18 +389,20 @@ flowchart TB
         FB["Fallback Routes<br/>O(n) regex scan"]
     end
 
+    Registration -->|"getRouteCollection()"| RC
     RC --> ST
     RC --> TRIE
     RC --> FB
 
-    PSR7["PSR-7 Request"] --> Router
-    Router --> PSR7R["PSR-7 Response"]
+    PSR7["PSR-7 Request"] --> Dispatch
+    Dispatch --> PSR7R["PSR-7 Response"]
     COMP -->|"compile / load"| RC
     ARL -->|"load attributes"| RC
     DIAG -->|"inspect"| RC
     UG -->|"reverse lookup"| RC
 
-    style Router fill:#e1ecf4,stroke:#0366d6
+    style Registration fill:#f0e6ff,stroke:#7c3aed
+    style Dispatch fill:#e1ecf4,stroke:#0366d6
     style ST fill:#d4edda,stroke:#28a745
     style TRIE fill:#fff3cd,stroke:#ffc107
     style FB fill:#f8d7da,stroke:#dc3545
@@ -396,7 +410,8 @@ flowchart TB
 
 | Component | Responsibility |
 |:----------|:---------------|
-| **Router** | Entry point — route registration, middleware, caching, request dispatch |
+| **RouteRegistrar** | Fluent route registration, attribute loading, group prefixes and middleware |
+| **Router** | PSR-15 request handler — matching, middleware execution, dispatching |
 | **RouteCollection** | Stores routes, performs matching via three-phase strategy |
 | **RouteTrie** | Prefix-tree for fast segment-by-segment matching |
 | **AttributeRouteLoader** | Reads `#[Route]` attributes via Reflection |

@@ -22,20 +22,30 @@ parent: Русский
 
 ## Ручная регистрация маршрутов
 
-Регистрируйте маршруты с помощью fluent API. Доступны сокращённые методы для основных HTTP-глаголов:
+Используйте `RouteRegistrar` для регистрации маршрутов с помощью fluent API. Доступны сокращённые методы для основных HTTP-глаголов:
 
 ```php
+use AsceticSoft\Waypoint\RouteRegistrar;
+
+$registrar = new RouteRegistrar();
+
 // Полная форма
-$router->addRoute('/users', [UserController::class, 'list'], methods: ['GET']);
+$registrar->addRoute('/users', [UserController::class, 'list'], methods: ['GET']);
 
 // Сокращения
-$router->get('/users',          [UserController::class, 'list']);
-$router->post('/users',         [UserController::class, 'create']);
-$router->put('/users/{id}',     [UserController::class, 'update']);
-$router->delete('/users/{id}',  [UserController::class, 'destroy']);
+$registrar->get('/users',          [UserController::class, 'list']);
+$registrar->post('/users',         [UserController::class, 'create']);
+$registrar->put('/users/{id}',     [UserController::class, 'update']);
+$registrar->delete('/users/{id}',  [UserController::class, 'destroy']);
 
 // Любой другой HTTP-метод (PATCH, OPTIONS и т.д.)
-$router->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PATCH']);
+$registrar->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PATCH']);
+```
+
+После регистрации передайте коллекцию в `Router`:
+
+```php
+$router = new Router($container, $registrar->getRouteCollection());
 ```
 
 ### Параметры методов
@@ -56,19 +66,19 @@ $router->addRoute('/users/{id}', [UserController::class, 'patch'], methods: ['PA
 
 ```php
 // Базовый параметр — соответствует любому сегменту без слеша
-$router->get('/users/{id}', [UserController::class, 'show']);
+$registrar->get('/users/{id}', [UserController::class, 'show']);
 
 // Ограниченный параметр — только цифры
-$router->get('/users/{id:\d+}', [UserController::class, 'show']);
+$registrar->get('/users/{id:\d+}', [UserController::class, 'show']);
 
 // Несколько параметров
-$router->get('/posts/{year:\d{4}}/{slug}', [PostController::class, 'show']);
+$registrar->get('/posts/{year:\d{4}}/{slug}', [PostController::class, 'show']);
 ```
 
 Параметры автоматически внедряются в обработчик по имени с приведением типов:
 
 ```php
-$router->get('/users/{id:\d+}', function (int $id) {
+$registrar->get('/users/{id:\d+}', function (int $id) {
     // $id автоматически приведён к int
 });
 ```
@@ -110,17 +120,19 @@ class UserController
 ### Загрузка атрибутов
 
 ```php
+$registrar = new RouteRegistrar();
+
 // Загрузить конкретные классы контроллеров
-$router->loadAttributes(
+$registrar->loadAttributes(
     UserController::class,
     PostController::class,
 );
 
 // Или просканировать директорию
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
 
 // С фильтрацией по имени файла
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ### Параметры атрибута
@@ -140,15 +152,15 @@ $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controlle
 Объединяйте связанные маршруты под общим префиксом и middleware:
 
 ```php
-$router->group('/api', function (Router $router) {
+$registrar->group('/api', function (RouteRegistrar $registrar) {
 
-    $router->group('/v1', function (Router $router) {
-        $router->get('/users', [UserController::class, 'list']);
+    $registrar->group('/v1', function (RouteRegistrar $registrar) {
+        $registrar->get('/users', [UserController::class, 'list']);
         // Совпадение: /api/v1/users
     });
 
-    $router->group('/v2', function (Router $router) {
-        $router->get('/users', [UserV2Controller::class, 'list']);
+    $registrar->group('/v2', function (RouteRegistrar $registrar) {
+        $registrar->get('/users', [UserV2Controller::class, 'list']);
         // Совпадение: /api/v2/users
     });
 
@@ -165,8 +177,8 @@ $router->group('/api', function (Router $router) {
 
 ```php
 // Более высокий приоритет = проверяется первым
-$router->get('/users/{action}',  [UserController::class, 'action'], priority: 0);
-$router->get('/users/settings',  [UserController::class, 'settings'], priority: 10);
+$registrar->get('/users/{action}',  [UserController::class, 'action'], priority: 0);
+$registrar->get('/users/settings',  [UserController::class, 'settings'], priority: 10);
 ```
 
 Маршруты с более высоким значением приоритета проверяются раньше. Маршруты с одинаковым приоритетом сопоставляются в порядке регистрации.

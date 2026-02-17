@@ -31,26 +31,40 @@ composer require ascetic-soft/waypoint
 - PHP >= 8.4
 - ext-mbstring
 
+### Optional PSR packages
+
+The core matching engine works as pure PHP. For PSR-15 request handling (middleware, DI, `Router::handle()`), install the PSR packages:
+
+```bash
+composer require psr/http-message psr/http-server-handler psr/http-server-middleware psr/container
+```
+
 ---
 
 ## Quick Start
 
-### Step 1: Create a router
+Waypoint separates route **registration** (`RouteRegistrar`) from request **dispatching** (`Router`).
+
+### Step 1: Register routes
 
 ```php
-use AsceticSoft\Waypoint\Router;
+use AsceticSoft\Waypoint\RouteRegistrar;
 
-$router = new Router($container); // any PSR-11 container
-```
+$registrar = new RouteRegistrar();
 
-### Step 2: Register routes
-
-```php
-$router->get('/hello/{name}', function (string $name) use ($responseFactory) {
+$registrar->get('/hello/{name}', function (string $name) use ($responseFactory) {
     $response = $responseFactory->createResponse();
     $response->getBody()->write("Hello, {$name}!");
     return $response;
 });
+```
+
+### Step 2: Create the router
+
+```php
+use AsceticSoft\Waypoint\Router;
+
+$router = new Router($container, $registrar->getRouteCollection());
 ```
 
 ### Step 3: Handle requests
@@ -71,11 +85,13 @@ Waypoint automatically extracts `{name}` from the URL and injects it into your h
 For real applications, use controller classes instead of closures:
 
 ```php
-$router->get('/users',          [UserController::class, 'list']);
-$router->post('/users',         [UserController::class, 'create']);
-$router->get('/users/{id:\d+}', [UserController::class, 'show']);
-$router->put('/users/{id:\d+}', [UserController::class, 'update']);
-$router->delete('/users/{id:\d+}', [UserController::class, 'destroy']);
+$registrar = new RouteRegistrar();
+
+$registrar->get('/users',             [UserController::class, 'list']);
+$registrar->post('/users',            [UserController::class, 'create']);
+$registrar->get('/users/{id:\d+}',    [UserController::class, 'show']);
+$registrar->put('/users/{id:\d+}',    [UserController::class, 'update']);
+$registrar->delete('/users/{id:\d+}', [UserController::class, 'destroy']);
 ```
 
 Controller methods receive route parameters automatically with type coercion:
@@ -122,14 +138,16 @@ class UserController
 Then load them:
 
 ```php
+$registrar = new RouteRegistrar();
+
 // Load specific classes
-$router->loadAttributes(UserController::class, PostController::class);
+$registrar->loadAttributes(UserController::class, PostController::class);
 
 // Or scan an entire directory
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
 
 // Optionally filter by filename pattern
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ---
@@ -140,28 +158,33 @@ $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controlle
 <?php
 // bootstrap.php
 
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
 use AsceticSoft\Waypoint\Exception\MethodNotAllowedException;
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-$router = new Router($container);
+$cacheFile = __DIR__ . '/cache/routes.php';
+$compiler  = new RouteCompiler();
+
+// In production: load from cache; otherwise register and compile
+if ($compiler->isFresh($cacheFile)) {
+    $router = new Router($container);
+    $router->loadCache($cacheFile);
+} else {
+    $registrar = new RouteRegistrar();
+    $registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+    // Compile for next request
+    $compiler->compile($registrar->getRouteCollection(), $cacheFile);
+
+    $router = new Router($container, $registrar->getRouteCollection());
+}
 
 // Global middleware
 $router->addMiddleware(CorsMiddleware::class);
-
-// Load routes from controller attributes
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-
-// Or use cache in production
-$cacheFile = __DIR__ . '/cache/routes.php';
-if (file_exists($cacheFile)) {
-    $router->loadCache($cacheFile);
-} else {
-    $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-    $router->compileTo($cacheFile);
-}
 
 // Handle request
 try {

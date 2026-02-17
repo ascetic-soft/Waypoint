@@ -51,15 +51,20 @@ Parameter resolution order means you can mix route parameters, the request objec
 Generate URLs from named routes (reverse routing):
 
 ```php
-// Register named routes
-$router->get('/users',          [UserController::class, 'list'], name: 'users.list');
-$router->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+$registrar = new RouteRegistrar();
 
-// Generate URLs
-$url = $router->generate('users.show', ['id' => 42]);
+// Register named routes
+$registrar->get('/users',          [UserController::class, 'list'], name: 'users.list');
+$registrar->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+
+// Create router
+$router = new Router($container, $registrar->getRouteCollection());
+
+// Generate URLs via the URL generator
+$url = $router->getUrlGenerator()->generate('users.show', ['id' => 42]);
 // => /users/42
 
-$url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
+$url = $router->getUrlGenerator()->generate('users.list', query: ['page' => 2, 'limit' => 10]);
 // => /users?page=2&limit=10
 ```
 
@@ -72,7 +77,7 @@ Set a base URL (scheme + host) to generate fully-qualified URLs:
 ```php
 $router->setBaseUrl('https://example.com');
 
-$url = $router->generate('users.show', ['id' => 42], absolute: true);
+$url = $router->getUrlGenerator()->generate('users.show', ['id' => 42], absolute: true);
 // => https://example.com/users/42
 ```
 
@@ -95,27 +100,36 @@ URL generation works with cached routes — route names and patterns are preserv
 
 ## Route Caching
 
-Compile routes to a PHP file for zero-overhead loading in production:
+Compile routes to a PHP file for zero-overhead loading in production.
 
 ### Compiling the Cache
 
 ```php
-// During deployment / cache warm-up
-$router->compileTo(__DIR__ . '/cache/routes.php');
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
+
+$registrar = new RouteRegistrar();
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+$compiler = new RouteCompiler();
+$compiler->compile($registrar->getRouteCollection(), __DIR__ . '/cache/routes.php');
 ```
 
 ### Loading from Cache
 
 ```php
 $cacheFile = __DIR__ . '/cache/routes.php';
+$compiler  = new RouteCompiler();
 
 $router = new Router($container);
 
-if (file_exists($cacheFile)) {
+if ($compiler->isFresh($cacheFile)) {
     $router->loadCache($cacheFile);
 } else {
-    $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-    $router->compileTo($cacheFile);
+    $registrar = new RouteRegistrar();
+    $registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+    $compiler->compile($registrar->getRouteCollection(), $cacheFile);
+
+    $router = new Router($container, $registrar->getRouteCollection());
 }
 ```
 
@@ -195,16 +209,18 @@ try {
 Waypoint is designed around a modular architecture where each component has a single responsibility:
 
 ```
-Router  (PSR-15 RequestHandlerInterface)
+RouteRegistrar      — fluent route registration, attribute loading, groups
+Router              (PSR-15 RequestHandlerInterface)
 ├── RouteCollection
 │   ├── RouteTrie           — prefix-tree for fast segment matching
 │   └── Route[]             — fallback linear matching for complex patterns
-├── AttributeRouteLoader    — reads #[Route] attributes via Reflection
 ├── MiddlewarePipeline      — FIFO PSR-15 middleware execution
 ├── RouteHandler            — invokes controller with DI
 ├── UrlGenerator            — reverse routing (name + params → URL)
 ├── RouteCompiler           — compiles/loads route cache
 └── RouteDiagnostics        — conflict detection and reporting
 ```
+
+The `RouteRegistrar` handles route building (manual registration, attribute loading, groups) and produces a `RouteCollection`. The `Router` is a pure PSR-15 `RequestHandlerInterface` responsible only for matching and dispatching.
 
 The `RouteTrie` handles the majority of routes with O(1) per-segment lookups. Routes with patterns that cannot be expressed in the trie (mixed static/parameter segments like `prefix-{name}.txt`, or cross-segment captures) automatically fall back to linear regex matching.

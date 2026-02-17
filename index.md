@@ -30,6 +30,7 @@ Waypoint is a modern, lightweight **PSR-15 compatible PHP router** for PHP 8.4+.
 
 ### Key Highlights
 
+- **Zero required dependencies** — the core matching engine (route registration, compilation, trie matching, URL generation, diagnostics) works as pure PHP; PSR packages are optional
 - **PSR-15 compliant** — implements `RequestHandlerInterface`, works with any PSR-7 / PSR-15 stack
 - **Attribute-based routing** — declare routes with PHP 8 `#[Route]` attributes directly on controllers
 - **Fast prefix-trie matching** — static segments resolved via O(1) hash-map lookups; dynamic segments tested only when necessary
@@ -40,28 +41,32 @@ Waypoint is a modern, lightweight **PSR-15 compatible PHP router** for PHP 8.4+.
 - **URL generation** — reverse routing from named routes and parameters
 - **Route diagnostics** — detect duplicate paths, duplicate names, and shadowed routes
 - **Priority-based matching** — control which route wins when patterns overlap
+- **Clean architecture** — separate `RouteRegistrar` for route building and `Router` for PSR-15 dispatching
 
 ---
 
 ## Quick Example
 
 ```php
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use Nyholm\Psr7\ServerRequest;
 
-$router = new Router($container); // any PSR-11 container
-
-$router->get('/hello/{name}', function (string $name) use ($responseFactory) {
+// 1. Register routes
+$registrar = new RouteRegistrar();
+$registrar->get('/hello/{name}', function (string $name) use ($responseFactory) {
     $response = $responseFactory->createResponse();
     $response->getBody()->write("Hello, {$name}!");
     return $response;
 });
 
-$request  = new ServerRequest('GET', '/hello/world');
+// 2. Create the router and handle requests
+$router  = new Router($container, $registrar->getRouteCollection());
+$request = new ServerRequest('GET', '/hello/world');
 $response = $router->handle($request);
 ```
 
-That's it. A few lines to get a fully working router with parameter injection. No XML, no YAML, no boilerplate.
+A few lines to get a fully working router with parameter injection. No XML, no YAML, no boilerplate.
 
 ---
 
@@ -76,7 +81,7 @@ That's it. A few lines to get a fully working router with parameter injection. N
 | Route caching (OPcache) | Yes | Some |
 | Auto dependency injection | Yes | Rare |
 | Route diagnostics | Yes | No |
-| Minimal dependencies | PSR packages only | Often many |
+| Zero required dependencies | Pure PHP core, PSR optional | Often many |
 | PHPStan Level 9 | Yes | Varies |
 
 ---
@@ -90,6 +95,12 @@ That's it. A few lines to get a fully working router with parameter injection. N
 
 ```bash
 composer require ascetic-soft/waypoint
+```
+
+For PSR-15 request handling, also install the PSR packages:
+
+```bash
+composer require psr/http-message psr/http-server-handler psr/http-server-middleware psr/container
 ```
 
 ---

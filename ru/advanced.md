@@ -52,15 +52,20 @@ public function show(
 Генерируйте URL из именованных маршрутов (обратная маршрутизация):
 
 ```php
-// Регистрация именованных маршрутов
-$router->get('/users',          [UserController::class, 'list'], name: 'users.list');
-$router->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+$registrar = new RouteRegistrar();
 
-// Генерация URL
-$url = $router->generate('users.show', ['id' => 42]);
+// Регистрация именованных маршрутов
+$registrar->get('/users',          [UserController::class, 'list'], name: 'users.list');
+$registrar->get('/users/{id:\d+}', [UserController::class, 'show'], name: 'users.show');
+
+// Создание роутера
+$router = new Router($container, $registrar->getRouteCollection());
+
+// Генерация URL через генератор
+$url = $router->getUrlGenerator()->generate('users.show', ['id' => 42]);
 // => /users/42
 
-$url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
+$url = $router->getUrlGenerator()->generate('users.list', query: ['page' => 2, 'limit' => 10]);
 // => /users?page=2&limit=10
 ```
 
@@ -73,7 +78,7 @@ $url = $router->generate('users.list', query: ['page' => 2, 'limit' => 10]);
 ```php
 $router->setBaseUrl('https://example.com');
 
-$url = $router->generate('users.show', ['id' => 42], absolute: true);
+$url = $router->getUrlGenerator()->generate('users.show', ['id' => 42], absolute: true);
 // => https://example.com/users/42
 ```
 
@@ -96,27 +101,36 @@ $url = $generator->generate('users.show', ['id' => 42], absolute: true); // аб
 
 ## Кэширование маршрутов
 
-Скомпилируйте маршруты в PHP-файл для мгновенной загрузки в продакшене:
+Скомпилируйте маршруты в PHP-файл для мгновенной загрузки в продакшене.
 
 ### Компиляция кэша
 
 ```php
-// Во время деплоя / прогрева кэша
-$router->compileTo(__DIR__ . '/cache/routes.php');
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
+
+$registrar = new RouteRegistrar();
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+$compiler = new RouteCompiler();
+$compiler->compile($registrar->getRouteCollection(), __DIR__ . '/cache/routes.php');
 ```
 
 ### Загрузка из кэша
 
 ```php
 $cacheFile = __DIR__ . '/cache/routes.php';
+$compiler  = new RouteCompiler();
 
 $router = new Router($container);
 
-if (file_exists($cacheFile)) {
+if ($compiler->isFresh($cacheFile)) {
     $router->loadCache($cacheFile);
 } else {
-    $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-    $router->compileTo($cacheFile);
+    $registrar = new RouteRegistrar();
+    $registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+    $compiler->compile($registrar->getRouteCollection(), $cacheFile);
+
+    $router = new Router($container, $registrar->getRouteCollection());
 }
 ```
 
@@ -196,16 +210,18 @@ try {
 Waypoint построен на модульной архитектуре, где каждый компонент имеет единственную ответственность:
 
 ```
-Router  (PSR-15 RequestHandlerInterface)
+RouteRegistrar          — fluent-регистрация маршрутов, загрузка атрибутов, группы
+Router                  (PSR-15 RequestHandlerInterface)
 ├── RouteCollection
 │   ├── RouteTrie           — префиксное дерево для быстрого сопоставления
 │   └── Route[]             — линейное regex-сопоставление для сложных шаблонов
-├── AttributeRouteLoader    — чтение атрибутов #[Route] через Reflection
 ├── MiddlewarePipeline      — FIFO-выполнение PSR-15 middleware
 ├── RouteHandler            — вызов контроллера с внедрением зависимостей
 ├── UrlGenerator            — обратная маршрутизация (имя + параметры → URL)
 ├── RouteCompiler           — компиляция/загрузка кэша маршрутов
 └── RouteDiagnostics        — обнаружение конфликтов и отчётность
 ```
+
+`RouteRegistrar` занимается построением маршрутов (ручная регистрация, загрузка атрибутов, группы) и создаёт `RouteCollection`. `Router` — чистый PSR-15 `RequestHandlerInterface`, ответственный только за сопоставление и диспетчеризацию.
 
 `RouteTrie` обрабатывает большинство маршрутов с O(1) поиском на сегмент. Маршруты с шаблонами, которые невозможно выразить в дереве (смешанные сегменты вроде `prefix-{name}.txt` или захваты через несколько сегментов), автоматически используют линейное regex-сопоставление.

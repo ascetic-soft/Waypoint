@@ -26,11 +26,14 @@ Waypoint поддерживает PSR-15 middleware на двух уровнях
 
 Порядок выполнения FIFO: сначала глобальные middleware, затем маршрутные, затем обработчик контроллера.
 
+{: .note }
+PSR-пакеты middleware (`psr/http-server-middleware`, `psr/http-server-handler`) — опциональные зависимости. Установите их для использования middleware: `composer require psr/http-server-middleware psr/http-server-handler`.
+
 ---
 
 ## Глобальные Middleware
 
-Глобальные middleware выполняются для каждого совпавшего маршрута:
+Глобальные middleware добавляются к `Router` и выполняются для каждого совпавшего маршрута:
 
 ```php
 $router->addMiddleware(CorsMiddleware::class);
@@ -43,10 +46,10 @@ $router->addMiddleware(new RateLimitMiddleware(limit: 100));
 
 ## Маршрутные Middleware
 
-Применяйте middleware к конкретным маршрутам:
+Применяйте middleware к конкретным маршрутам при регистрации:
 
 ```php
-$router->get('/admin/dashboard', [AdminController::class, 'dashboard'],
+$registrar->get('/admin/dashboard', [AdminController::class, 'dashboard'],
     middleware: [AdminAuthMiddleware::class],
 );
 ```
@@ -71,9 +74,9 @@ class UserController
 Применяйте middleware к группе маршрутов:
 
 ```php
-$router->group('/api', function (Router $router) {
-    $router->get('/users', [UserController::class, 'list']);
-    $router->get('/posts', [PostController::class, 'list']);
+$registrar->group('/api', function (RouteRegistrar $registrar) {
+    $registrar->get('/users', [UserController::class, 'list']);
+    $registrar->get('/posts', [PostController::class, 'list']);
 }, middleware: [ApiAuthMiddleware::class, RateLimitMiddleware::class]);
 ```
 

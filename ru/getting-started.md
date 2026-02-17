@@ -32,26 +32,40 @@ composer require ascetic-soft/waypoint
 - PHP >= 8.4
 - ext-mbstring
 
+### Опциональные PSR-пакеты
+
+Ядро работает на чистом PHP. Для PSR-15 обработки запросов (middleware, DI, `Router::handle()`) установите PSR-пакеты:
+
+```bash
+composer require psr/http-message psr/http-server-handler psr/http-server-middleware psr/container
+```
+
 ---
 
 ## Быстрый старт
 
-### Шаг 1: Создайте роутер
+Waypoint разделяет **регистрацию** маршрутов (`RouteRegistrar`) и **диспетчеризацию** запросов (`Router`).
+
+### Шаг 1: Зарегистрируйте маршруты
 
 ```php
-use AsceticSoft\Waypoint\Router;
+use AsceticSoft\Waypoint\RouteRegistrar;
 
-$router = new Router($container); // любой PSR-11 контейнер
-```
+$registrar = new RouteRegistrar();
 
-### Шаг 2: Зарегистрируйте маршруты
-
-```php
-$router->get('/hello/{name}', function (string $name) use ($responseFactory) {
+$registrar->get('/hello/{name}', function (string $name) use ($responseFactory) {
     $response = $responseFactory->createResponse();
     $response->getBody()->write("Hello, {$name}!");
     return $response;
 });
+```
+
+### Шаг 2: Создайте роутер
+
+```php
+use AsceticSoft\Waypoint\Router;
+
+$router = new Router($container, $registrar->getRouteCollection());
 ```
 
 ### Шаг 3: Обработайте запрос
@@ -72,11 +86,13 @@ Waypoint автоматически извлекает `{name}` из URL и вн
 Для реальных приложений используйте классы контроллеров вместо замыканий:
 
 ```php
-$router->get('/users',             [UserController::class, 'list']);
-$router->post('/users',            [UserController::class, 'create']);
-$router->get('/users/{id:\d+}',    [UserController::class, 'show']);
-$router->put('/users/{id:\d+}',    [UserController::class, 'update']);
-$router->delete('/users/{id:\d+}', [UserController::class, 'destroy']);
+$registrar = new RouteRegistrar();
+
+$registrar->get('/users',             [UserController::class, 'list']);
+$registrar->post('/users',            [UserController::class, 'create']);
+$registrar->get('/users/{id:\d+}',    [UserController::class, 'show']);
+$registrar->put('/users/{id:\d+}',    [UserController::class, 'update']);
+$registrar->delete('/users/{id:\d+}', [UserController::class, 'destroy']);
 ```
 
 Методы контроллера получают параметры маршрута автоматически с приведением типов:
@@ -123,14 +139,16 @@ class UserController
 Затем загрузите их:
 
 ```php
+$registrar = new RouteRegistrar();
+
 // Загрузить конкретные классы
-$router->loadAttributes(UserController::class, PostController::class);
+$registrar->loadAttributes(UserController::class, PostController::class);
 
 // Или просканировать директорию
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
 
 // С фильтрацией по имени файла
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
+$registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controller.php');
 ```
 
 ---
@@ -141,28 +159,33 @@ $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers', '*Controlle
 <?php
 // bootstrap.php
 
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
 use AsceticSoft\Waypoint\Exception\MethodNotAllowedException;
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-$router = new Router($container);
+$cacheFile = __DIR__ . '/cache/routes.php';
+$compiler  = new RouteCompiler();
+
+// В продакшене: загрузка из кэша; иначе регистрация и компиляция
+if ($compiler->isFresh($cacheFile)) {
+    $router = new Router($container);
+    $router->loadCache($cacheFile);
+} else {
+    $registrar = new RouteRegistrar();
+    $registrar->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
+
+    // Компиляция для следующего запроса
+    $compiler->compile($registrar->getRouteCollection(), $cacheFile);
+
+    $router = new Router($container, $registrar->getRouteCollection());
+}
 
 // Глобальные middleware
 $router->addMiddleware(CorsMiddleware::class);
-
-// Загрузка маршрутов из атрибутов контроллеров
-$router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-
-// Или использование кэша в продакшене
-$cacheFile = __DIR__ . '/cache/routes.php';
-if (file_exists($cacheFile)) {
-    $router->loadCache($cacheFile);
-} else {
-    $router->scanDirectory(__DIR__ . '/Controllers', 'App\\Controllers');
-    $router->compileTo($cacheFile);
-}
 
 // Обработка запроса
 try {

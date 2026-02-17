@@ -19,14 +19,14 @@ Complete reference for all public classes and methods.
 
 ---
 
-## Router
+## RouteRegistrar
 
-The main entry point. Implements `Psr\Http\Server\RequestHandlerInterface`.
+Standalone route registration builder. Provides a fluent API for manual route registration, attribute-based loading, and route groups.
 
 ```php
-use AsceticSoft\Waypoint\Router;
+use AsceticSoft\Waypoint\RouteRegistrar;
 
-$router = new Router(ContainerInterface $container);
+$registrar = new RouteRegistrar();
 ```
 
 ### Route Registration
@@ -40,18 +40,46 @@ $router = new Router(ContainerInterface $container);
 | `delete(string $path, array\|Closure $handler, ...): self` | Register a DELETE route |
 | `group(string $prefix, Closure $callback, array $middleware): self` | Group routes under a shared prefix |
 
-### Middleware
-
-| Method | Description |
-|:-------|:------------|
-| `addMiddleware(string\|MiddlewareInterface $middleware): void` | Add global middleware |
-
 ### Attribute Loading
 
 | Method | Description |
 |:-------|:------------|
 | `loadAttributes(string ...$classes): self` | Load routes from `#[Route]` attributes |
 | `scanDirectory(string $directory, string $namespace, string $filePattern = '*.php'): self` | Auto-discover routes by scanning a directory |
+
+### Inspection
+
+| Method | Description |
+|:-------|:------------|
+| `getRouteCollection(): RouteCollection` | Get the route collection built by this registrar |
+
+---
+
+## Router
+
+PSR-15 request handler that dispatches to matched routes through a middleware pipeline. Implements `Psr\Http\Server\RequestHandlerInterface`.
+
+```php
+use AsceticSoft\Waypoint\Router;
+
+$router = new Router(
+    ContainerInterface $container,
+    RouteCollection $routes = new RouteCollection(),
+    ?UrlMatcherInterface $matcher = null,
+);
+```
+
+### Middleware
+
+| Method | Description |
+|:-------|:------------|
+| `addMiddleware(string\|MiddlewareInterface ...$middleware): self` | Add global middleware |
+
+### Caching
+
+| Method | Description |
+|:-------|:------------|
+| `loadCache(string $cacheFilePath): self` | Load routes from a compiled cache file |
 
 ### Request Handling
 
@@ -63,22 +91,15 @@ $router = new Router(ContainerInterface $container);
 
 | Method | Description |
 |:-------|:------------|
-| `generate(string $name, array $params = [], array $query = [], bool $absolute = false): string` | Generate URL from a named route |
 | `setBaseUrl(string $baseUrl): self` | Set base URL for absolute URL generation |
 | `getUrlGenerator(): UrlGenerator` | Get the URL generator instance (lazily created) |
-
-### Caching
-
-| Method | Description |
-|:-------|:------------|
-| `compileTo(string $file): void` | Compile routes to a cache file |
-| `loadCache(string $file): void` | Load routes from a compiled cache file |
 
 ### Inspection
 
 | Method | Description |
 |:-------|:------------|
-| `getRouteCollection(): RouteCollection` | Access the route collection |
+| `getRouteCollection(): RouteCollection` | Get the route collection |
+| `getMatcher(): UrlMatcherInterface` | Get the URL matcher (lazily created from route collection) |
 
 ---
 
@@ -166,11 +187,15 @@ Compiles and loads route cache files.
 
 ```php
 use AsceticSoft\Waypoint\Cache\RouteCompiler;
+
+$compiler = new RouteCompiler();
 ```
 
 | Method | Description |
 |:-------|:------------|
-| `compile(RouteCollection $routes, string $file): void` | Compile routes to a PHP cache file (Phase 3 compiled matcher) |
+| `compile(RouteCollection $routes, string $cacheFilePath): void` | Compile routes to a PHP cache file (compiled matcher class) |
+| `load(string $cacheFilePath): UrlMatcherInterface` | Load a matcher from a compiled cache file |
+| `isFresh(string $cacheFilePath): bool` | Check whether the cache file exists |
 
 ---
 

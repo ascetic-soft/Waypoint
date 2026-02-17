@@ -28,20 +28,20 @@ parent: Русский
 sequenceDiagram
     participant Client as Клиент
     participant Router as Router
-    participant RouteCollection as RouteCollection
+    participant UrlMatcher as UrlMatcher
     participant MiddlewarePipeline as MiddlewarePipeline
     participant RouteHandler as RouteHandler
     participant Controller as Контроллер
 
     Client->>Router: handle(request)
-    Router->>RouteCollection: match(method, uri)
+    Router->>UrlMatcher: match(method, uri)
 
     alt Нет совпадений
-        RouteCollection-->>Router: RouteNotFoundException
+        UrlMatcher-->>Router: RouteNotFoundException
     else Метод не разрешён
-        RouteCollection-->>Router: MethodNotAllowedException
+        UrlMatcher-->>Router: MethodNotAllowedException
     else Найдено совпадение
-        RouteCollection-->>Router: RouteMatchResult(route, params)
+        UrlMatcher-->>Router: RouteMatchResult(route, params)
     end
 
     Router->>MiddlewarePipeline: handle(request)
@@ -56,7 +56,7 @@ sequenceDiagram
     Router-->>Client: response
 ```
 
-1. **Сопоставление маршрута** — `RouteCollection::match()` находит подходящий маршрут для HTTP-метода и URI.
+1. **Сопоставление маршрута** — `UrlMatcherInterface::match()` находит подходящий маршрут для HTTP-метода и URI.
 2. **Конвейер middleware** — глобальные и маршрутные middleware выполняются в порядке FIFO.
 3. **Вызов контроллера** — `RouteHandler` разрешает параметры через DI и вызывает контроллер.
 4. **Ответ** — ответ поднимается обратно через стек middleware.
@@ -171,6 +171,12 @@ function match(method, segments, depth, params, allowedMethods):
 - Trie естественно учитывает приоритет: маршруты вставляются в порядке приоритета, и первое совпадение побеждает.
 - Алгоритм обхода — в глубину (depth-first): каждая ветвь исследуется полностью перед возвратом.
 
+### Сериализация Trie (OPcache)
+
+При компиляции маршрутов через `RouteCompiler` trie сериализуется с использованием **целочисленно-индексированных кортежей** вместо строковых ассоциативных массивов. Это создаёт упакованные массивы, которые более эффективно хранятся в разделяемой памяти OPcache.
+
+HTTP-методы в листовых узлах хранятся как **хеш-таблицы** (`['GET' => true, 'POST' => true]`) на этапе компиляции, что обеспечивает O(1) проверку `isset()` вместо O(n) `in_array()` в сгенерированном `walk()`.
+
 ---
 
 ## Конвейер Middleware
@@ -283,26 +289,25 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Router::compileTo(file)"] --> B["RouteCompiler::compile()"]
-    B --> C["Сортировка маршрутов по приоритету"]
-    C --> D["Классификация маршрутов"]
+    A["RouteCompiler::compile(routes, file)"] --> B["Сортировка маршрутов по приоритету"]
+    B --> C["Классификация маршрутов"]
 
-    D --> E["Статические → хеш-таблица"]
-    D --> F["Trie-совместимые → prefix-trie"]
-    D --> G["Сложные шаблоны → fallback-список"]
+    C --> D["Статические → хеш-таблица"]
+    C --> E["Trie-совместимые → prefix-trie"]
+    C --> F["Сложные шаблоны → fallback-список"]
 
-    E --> H["Генерация метода matchStatic()"]
-    F --> I["Генерация метода matchDynamic()"]
-    G --> J["Сериализация fallback-индексов"]
+    D --> G["Генерация метода matchStatic()"]
+    E --> H["Генерация метода matchDynamic()"]
+    F --> I["Сериализация fallback-индексов"]
 
-    H --> K["Генерация PHP-класса"]
-    I --> K
-    J --> K
+    G --> J["Генерация PHP-класса"]
+    H --> J
+    I --> J
 
-    K --> L["Предвычисление argPlan (без Reflection в runtime)"]
-    L --> M["Запись файла, реализующего CompiledMatcherInterface"]
+    J --> K["Предвычисление argPlan (без Reflection в runtime)"]
+    K --> L["Запись файла, реализующего CompiledMatcherInterface"]
 
-    style M fill:#d4edda,stroke:#28a745
+    style L fill:#d4edda,stroke:#28a745
 ```
 
 Сгенерированный класс реализует `CompiledMatcherInterface` со следующими ключевыми методами:
@@ -320,6 +325,8 @@ flowchart TD
 
 **Ключевые оптимизации:**
 - **OPcache-совместимость** — файл представляет собой обычный PHP-класс, хранимый в разделяемой памяти.
+- **Целочисленно-индексированные кортежи** — узлы trie используют упакованные массивы с числовыми индексами вместо строковых ассоциативных массивов, что уменьшает расход памяти в разделяемой памяти.
+- **Предвычисленные хеш-таблицы методов** — HTTP-методы хранятся как `['GET' => true]` на этапе компиляции, обеспечивая O(1) проверку `isset()` вместо O(n) `in_array()`.
 - **Без Reflection** — планы разрешения аргументов предвычислены на этапе компиляции.
 - **Ленивая гидратация** — объекты `Route` создаются только для совпавших маршрутов, а не для всех.
 - **Match-выражения** — PHP 8 `match` используется для диспетчеризации статических маршрутов (компилируется движком в хеш-таблицу).
@@ -360,10 +367,15 @@ flowchart TD
 
 ```mermaid
 flowchart TB
-    subgraph Router["Router (PSR-15 RequestHandlerInterface)"]
+    subgraph Registration["RouteRegistrar"]
+        direction TB
+        ARL["AttributeRouteLoader"]
+        GROUPS["Группы/Префиксы"]
+    end
+
+    subgraph Dispatch["Router (PSR-15 RequestHandlerInterface)"]
         direction TB
         RC["RouteCollection"]
-        ARL["AttributeRouteLoader"]
         MP["MiddlewarePipeline"]
         RH["RouteHandler"]
         UG["UrlGenerator"]
@@ -378,18 +390,20 @@ flowchart TB
         FB["Fallback-маршруты<br/>O(n) regex-перебор"]
     end
 
+    Registration -->|"getRouteCollection()"| RC
     RC --> ST
     RC --> TRIE
     RC --> FB
 
-    PSR7["PSR-7 запрос"] --> Router
-    Router --> PSR7R["PSR-7 ответ"]
+    PSR7["PSR-7 запрос"] --> Dispatch
+    Dispatch --> PSR7R["PSR-7 ответ"]
     COMP -->|"компиляция / загрузка"| RC
     ARL -->|"загрузка атрибутов"| RC
     DIAG -->|"инспекция"| RC
     UG -->|"обратный поиск"| RC
 
-    style Router fill:#e1ecf4,stroke:#0366d6
+    style Registration fill:#f0e6ff,stroke:#7c3aed
+    style Dispatch fill:#e1ecf4,stroke:#0366d6
     style ST fill:#d4edda,stroke:#28a745
     style TRIE fill:#fff3cd,stroke:#ffc107
     style FB fill:#f8d7da,stroke:#dc3545
@@ -397,7 +411,8 @@ flowchart TB
 
 | Компонент | Ответственность |
 |:----------|:----------------|
-| **Router** | Точка входа — регистрация маршрутов, middleware, кэширование, диспетчеризация запросов |
+| **RouteRegistrar** | Fluent-регистрация маршрутов, загрузка атрибутов, префиксы групп и middleware |
+| **Router** | PSR-15 обработчик запросов — сопоставление, выполнение middleware, диспетчеризация |
 | **RouteCollection** | Хранение маршрутов, сопоставление через трёхфазную стратегию |
 | **RouteTrie** | Prefix-tree для быстрого посегментного сопоставления |
 | **AttributeRouteLoader** | Чтение атрибутов `#[Route]` через Reflection |

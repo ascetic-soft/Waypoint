@@ -25,11 +25,14 @@ Waypoint supports PSR-15 middleware at two levels: **global** (runs for every ma
 
 Middleware execution order is FIFO: global middleware runs first, then route-specific middleware, then the controller handler.
 
+{: .note }
+PSR middleware packages (`psr/http-server-middleware`, `psr/http-server-handler`) are optional dependencies. Install them if you use middleware: `composer require psr/http-server-middleware psr/http-server-handler`.
+
 ---
 
 ## Global Middleware
 
-Global middleware runs for every matched route:
+Global middleware is added to the `Router` and runs for every matched route:
 
 ```php
 $router->addMiddleware(CorsMiddleware::class);
@@ -42,10 +45,10 @@ When provided as a class name string, middleware is resolved from the PSR-11 con
 
 ## Route-Level Middleware
 
-Apply middleware to specific routes:
+Apply middleware to specific routes during registration:
 
 ```php
-$router->get('/admin/dashboard', [AdminController::class, 'dashboard'],
+$registrar->get('/admin/dashboard', [AdminController::class, 'dashboard'],
     middleware: [AdminAuthMiddleware::class],
 );
 ```
@@ -70,9 +73,9 @@ class UserController
 Apply middleware to a group of routes:
 
 ```php
-$router->group('/api', function (Router $router) {
-    $router->get('/users', [UserController::class, 'list']);
-    $router->get('/posts', [PostController::class, 'list']);
+$registrar->group('/api', function (RouteRegistrar $registrar) {
+    $registrar->get('/users', [UserController::class, 'list']);
+    $registrar->get('/posts', [PostController::class, 'list']);
 }, middleware: [ApiAuthMiddleware::class, RateLimitMiddleware::class]);
 ```
 

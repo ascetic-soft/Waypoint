@@ -20,14 +20,14 @@ parent: Русский
 
 ---
 
-## Router
+## RouteRegistrar
 
-Основная точка входа. Реализует `Psr\Http\Server\RequestHandlerInterface`.
+Самостоятельный строитель маршрутов. Предоставляет fluent API для ручной регистрации, загрузки атрибутов и групп маршрутов.
 
 ```php
-use AsceticSoft\Waypoint\Router;
+use AsceticSoft\Waypoint\RouteRegistrar;
 
-$router = new Router(ContainerInterface $container);
+$registrar = new RouteRegistrar();
 ```
 
 ### Регистрация маршрутов
@@ -41,18 +41,46 @@ $router = new Router(ContainerInterface $container);
 | `delete(string $path, array\|Closure $handler, ...): self` | Зарегистрировать DELETE-маршрут |
 | `group(string $prefix, Closure $callback, array $middleware): self` | Сгруппировать маршруты под общим префиксом |
 
-### Middleware
-
-| Метод | Описание |
-|:------|:---------|
-| `addMiddleware(string\|MiddlewareInterface $middleware): void` | Добавить глобальный middleware |
-
 ### Загрузка атрибутов
 
 | Метод | Описание |
 |:------|:---------|
 | `loadAttributes(string ...$classes): self` | Загрузить маршруты из атрибутов `#[Route]` |
 | `scanDirectory(string $directory, string $namespace, string $filePattern = '*.php'): self` | Автоматически обнаружить маршруты, сканируя директорию |
+
+### Инспекция
+
+| Метод | Описание |
+|:------|:---------|
+| `getRouteCollection(): RouteCollection` | Получить коллекцию маршрутов, построенную регистратором |
+
+---
+
+## Router
+
+PSR-15 обработчик запросов, выполняющий диспетчеризацию через конвейер middleware. Реализует `Psr\Http\Server\RequestHandlerInterface`.
+
+```php
+use AsceticSoft\Waypoint\Router;
+
+$router = new Router(
+    ContainerInterface $container,
+    RouteCollection $routes = new RouteCollection(),
+    ?UrlMatcherInterface $matcher = null,
+);
+```
+
+### Middleware
+
+| Метод | Описание |
+|:------|:---------|
+| `addMiddleware(string\|MiddlewareInterface ...$middleware): self` | Добавить глобальный middleware |
+
+### Кэширование
+
+| Метод | Описание |
+|:------|:---------|
+| `loadCache(string $cacheFilePath): self` | Загрузить маршруты из файла кэша |
 
 ### Обработка запросов
 
@@ -64,22 +92,15 @@ $router = new Router(ContainerInterface $container);
 
 | Метод | Описание |
 |:------|:---------|
-| `generate(string $name, array $params = [], array $query = [], bool $absolute = false): string` | Сгенерировать URL из именованного маршрута |
 | `setBaseUrl(string $baseUrl): self` | Установить базовый URL для абсолютных URL |
 | `getUrlGenerator(): UrlGenerator` | Получить экземпляр генератора URL (создаётся лениво) |
-
-### Кэширование
-
-| Метод | Описание |
-|:------|:---------|
-| `compileTo(string $file): void` | Скомпилировать маршруты в файл кэша |
-| `loadCache(string $file): void` | Загрузить маршруты из файла кэша |
 
 ### Инспекция
 
 | Метод | Описание |
 |:------|:---------|
 | `getRouteCollection(): RouteCollection` | Получить коллекцию маршрутов |
+| `getMatcher(): UrlMatcherInterface` | Получить матчер URL (создаётся лениво из коллекции) |
 
 ---
 
@@ -167,11 +188,15 @@ $diagnostics = new RouteDiagnostics(RouteCollection $routes);
 
 ```php
 use AsceticSoft\Waypoint\Cache\RouteCompiler;
+
+$compiler = new RouteCompiler();
 ```
 
 | Метод | Описание |
 |:------|:---------|
-| `compile(RouteCollection $routes, string $file): void` | Скомпилировать маршруты в PHP-файл кэша (Phase 3 compiled matcher) |
+| `compile(RouteCollection $routes, string $cacheFilePath): void` | Скомпилировать маршруты в PHP-файл кэша (compiled matcher class) |
+| `load(string $cacheFilePath): UrlMatcherInterface` | Загрузить матчер из файла кэша |
+| `isFresh(string $cacheFilePath): bool` | Проверить, существует ли файл кэша |
 
 ---
 

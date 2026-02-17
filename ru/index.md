@@ -31,6 +31,7 @@ Waypoint — это современный, легковесный **PSR-15 со
 
 ### Ключевые особенности
 
+- **Ноль обязательных зависимостей** — ядро (регистрация, компиляция, trie-сопоставление, генерация URL, диагностика) работает на чистом PHP; PSR-пакеты опциональны
 - **PSR-15 совместимый** — реализует `RequestHandlerInterface`, работает с любым PSR-7 / PSR-15 стеком
 - **Маршрутизация на атрибутах** — объявляйте маршруты с помощью PHP 8 атрибутов `#[Route]` прямо на контроллерах
 - **Быстрое prefix-trie сопоставление** — статические сегменты разрешаются через O(1) хеш-таблицу; динамические проверяются только при необходимости
@@ -41,24 +42,28 @@ Waypoint — это современный, легковесный **PSR-15 со
 - **Генерация URL** — обратная маршрутизация из именованных маршрутов
 - **Диагностика маршрутов** — обнаружение дублей, конфликтов имён и перекрытых маршрутов
 - **Приоритетное сопоставление** — управление тем, какой маршрут побеждает при пересечении шаблонов
+- **Чистая архитектура** — отдельный `RouteRegistrar` для построения маршрутов и `Router` для PSR-15 диспетчеризации
 
 ---
 
 ## Быстрый пример
 
 ```php
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use Nyholm\Psr7\ServerRequest;
 
-$router = new Router($container); // любой PSR-11 контейнер
-
-$router->get('/hello/{name}', function (string $name) use ($responseFactory) {
+// 1. Регистрация маршрутов
+$registrar = new RouteRegistrar();
+$registrar->get('/hello/{name}', function (string $name) use ($responseFactory) {
     $response = $responseFactory->createResponse();
     $response->getBody()->write("Hello, {$name}!");
     return $response;
 });
 
-$request  = new ServerRequest('GET', '/hello/world');
+// 2. Создание роутера и обработка запроса
+$router  = new Router($container, $registrar->getRouteCollection());
+$request = new ServerRequest('GET', '/hello/world');
 $response = $router->handle($request);
 ```
 
@@ -77,7 +82,7 @@ $response = $router->handle($request);
 | Кэширование маршрутов (OPcache) | Да | Некоторые |
 | Авто-внедрение зависимостей | Да | Редко |
 | Диагностика маршрутов | Да | Нет |
-| Минимум зависимостей | Только PSR-пакеты | Часто много |
+| Ноль обязательных зависимостей | Чистый PHP, PSR опционально | Часто много |
 | PHPStan Level 9 | Да | По-разному |
 
 ---
@@ -91,6 +96,12 @@ $response = $router->handle($request);
 
 ```bash
 composer require ascetic-soft/waypoint
+```
+
+Для PSR-15 обработки запросов установите также PSR-пакеты:
+
+```bash
+composer require psr/http-message psr/http-server-handler psr/http-server-middleware psr/container
 ```
 
 ---
