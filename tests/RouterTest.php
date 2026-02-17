@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace AsceticSoft\Waypoint\Tests;
 
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
 use AsceticSoft\Waypoint\Exception\MethodNotAllowedException;
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use AsceticSoft\Waypoint\Tests\Fixture\AnotherMiddleware;
 use AsceticSoft\Waypoint\Tests\Fixture\DummyMiddleware;
@@ -22,12 +24,18 @@ use Psr\Http\Message\ServerRequestInterface;
 final class RouterTest extends TestCase
 {
     private SimpleContainer $container;
-    private Router $router;
 
     protected function setUp(): void
     {
         $this->container = new SimpleContainer();
-        $this->router = new Router($this->container);
+    }
+
+    /**
+     * Build a Router from a configured RouteRegistrar.
+     */
+    private function buildRouter(RouteRegistrar $registrar): Router
+    {
+        return new Router($this->container, $registrar->getRouteCollection());
     }
 
     // ── Manual registration ──────────────────────────────────────
@@ -35,9 +43,10 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualGetRoute(): void
     {
-        $this->router->get('/hello', static fn (): ResponseInterface => new Response(200, [], 'hello'));
+        $reg = new RouteRegistrar();
+        $reg->get('/hello', static fn (): ResponseInterface => new Response(200, [], 'hello'));
 
-        $response = $this->router->handle(new ServerRequest('GET', '/hello'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/hello'));
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('hello', (string) $response->getBody());
@@ -46,9 +55,10 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualPostRoute(): void
     {
-        $this->router->post('/items', static fn (): ResponseInterface => new Response(201, [], 'created'));
+        $reg = new RouteRegistrar();
+        $reg->post('/items', static fn (): ResponseInterface => new Response(201, [], 'created'));
 
-        $response = $this->router->handle(new ServerRequest('POST', '/items'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('POST', '/items'));
 
         self::assertSame(201, $response->getStatusCode());
     }
@@ -56,9 +66,10 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualPutRoute(): void
     {
-        $this->router->put('/items/{id:\d+}', static fn (int $id): ResponseInterface => new Response(200, [], "updated:$id"));
+        $reg = new RouteRegistrar();
+        $reg->put('/items/{id:\d+}', static fn (int $id): ResponseInterface => new Response(200, [], "updated:$id"));
 
-        $response = $this->router->handle(new ServerRequest('PUT', '/items/5'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('PUT', '/items/5'));
 
         self::assertSame('updated:5', (string) $response->getBody());
     }
@@ -66,9 +77,10 @@ final class RouterTest extends TestCase
     #[Test]
     public function manualDeleteRoute(): void
     {
-        $this->router->delete('/items/{id:\d+}', static fn (int $id): ResponseInterface => new Response(200, [], "deleted:$id"));
+        $reg = new RouteRegistrar();
+        $reg->delete('/items/{id:\d+}', static fn (int $id): ResponseInterface => new Response(200, [], "deleted:$id"));
 
-        $response = $this->router->handle(new ServerRequest('DELETE', '/items/3'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('DELETE', '/items/3'));
 
         self::assertSame('deleted:3', (string) $response->getBody());
     }
@@ -78,9 +90,10 @@ final class RouterTest extends TestCase
     {
         $this->container->set(TestController::class, new TestController());
 
-        $this->router->get('/show/{id:\d+}', [TestController::class, 'show']);
+        $reg = new RouteRegistrar();
+        $reg->get('/show/{id:\d+}', [TestController::class, 'show']);
 
-        $response = $this->router->handle(new ServerRequest('GET', '/show/42'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/show/42'));
 
         self::assertSame('show:42', (string) $response->getBody());
     }
@@ -90,12 +103,13 @@ final class RouterTest extends TestCase
     #[Test]
     public function routeParametersAreInjectedByName(): void
     {
-        $this->router->get(
+        $reg = new RouteRegistrar();
+        $reg->get(
             '/users/{id:\d+}',
             static fn (int $id): ResponseInterface => new Response(200, [], "id=$id"),
         );
 
-        $response = $this->router->handle(new ServerRequest('GET', '/users/99'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/users/99'));
 
         self::assertSame('id=99', (string) $response->getBody());
     }
@@ -103,7 +117,8 @@ final class RouterTest extends TestCase
     #[Test]
     public function serverRequestIsInjected(): void
     {
-        $this->router->post(
+        $reg = new RouteRegistrar();
+        $reg->post(
             '/echo',
             static fn (ServerRequestInterface $request): ResponseInterface => new Response(
                 200,
@@ -112,7 +127,7 @@ final class RouterTest extends TestCase
             ),
         );
 
-        $response = $this->router->handle(new ServerRequest('POST', '/echo'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('POST', '/echo'));
 
         self::assertSame('POST', (string) $response->getBody());
     }
@@ -122,11 +137,12 @@ final class RouterTest extends TestCase
     #[Test]
     public function groupAppliesPrefix(): void
     {
-        $this->router->group('/api', function (Router $r): void {
+        $reg = new RouteRegistrar();
+        $reg->group('/api', function (RouteRegistrar $r): void {
             $r->get('/users', static fn (): ResponseInterface => new Response(200, [], 'api-users'));
         });
 
-        $response = $this->router->handle(new ServerRequest('GET', '/api/users'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/api/users'));
 
         self::assertSame('api-users', (string) $response->getBody());
     }
@@ -134,13 +150,14 @@ final class RouterTest extends TestCase
     #[Test]
     public function nestedGroupsStackPrefixes(): void
     {
-        $this->router->group('/api', function (Router $r): void {
-            $r->group('/v1', function (Router $r): void {
+        $reg = new RouteRegistrar();
+        $reg->group('/api', function (RouteRegistrar $r): void {
+            $r->group('/v1', function (RouteRegistrar $r): void {
                 $r->get('/users', static fn (): ResponseInterface => new Response(200, [], 'v1-users'));
             });
         });
 
-        $response = $this->router->handle(new ServerRequest('GET', '/api/v1/users'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/api/v1/users'));
 
         self::assertSame('v1-users', (string) $response->getBody());
     }
@@ -148,11 +165,12 @@ final class RouterTest extends TestCase
     #[Test]
     public function groupAppliesMiddleware(): void
     {
-        $this->router->group('/admin', function (Router $r): void {
+        $reg = new RouteRegistrar();
+        $reg->group('/admin', function (RouteRegistrar $r): void {
             $r->get('/dashboard', static fn (): ResponseInterface => new Response(200, [], 'dashboard'));
         }, [DummyMiddleware::class]);
 
-        $response = $this->router->handle(new ServerRequest('GET', '/admin/dashboard'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/admin/dashboard'));
 
         self::assertSame('applied', $response->getHeaderLine('X-Dummy-Middleware'));
     }
@@ -164,9 +182,10 @@ final class RouterTest extends TestCase
     {
         $this->container->set(TestController::class, new TestController());
 
-        $this->router->loadAttributes(TestController::class);
+        $reg = new RouteRegistrar();
+        $reg->loadAttributes(TestController::class);
 
-        $response = $this->router->handle(new ServerRequest('GET', '/'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/'));
 
         self::assertSame('index', (string) $response->getBody());
     }
@@ -176,9 +195,10 @@ final class RouterTest extends TestCase
     {
         $this->container->set(GroupedController::class, new GroupedController());
 
-        $this->router->loadAttributes(GroupedController::class);
+        $reg = new RouteRegistrar();
+        $reg->loadAttributes(GroupedController::class);
 
-        $response = $this->router->handle(new ServerRequest('GET', '/api/users/42'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/api/users/42'));
 
         self::assertSame('user:42', (string) $response->getBody());
         self::assertSame('applied', $response->getHeaderLine('X-Dummy-Middleware'));
@@ -189,10 +209,13 @@ final class RouterTest extends TestCase
     #[Test]
     public function globalMiddlewareRunsOnAllRoutes(): void
     {
-        $this->router->addMiddleware(DummyMiddleware::class);
-        $this->router->get('/test', static fn (): ResponseInterface => new Response(200, [], 'ok'));
+        $reg = new RouteRegistrar();
+        $reg->get('/test', static fn (): ResponseInterface => new Response(200, [], 'ok'));
 
-        $response = $this->router->handle(new ServerRequest('GET', '/test'));
+        $router = $this->buildRouter($reg);
+        $router->addMiddleware(DummyMiddleware::class);
+
+        $response = $router->handle(new ServerRequest('GET', '/test'));
 
         self::assertSame('applied', $response->getHeaderLine('X-Dummy-Middleware'));
     }
@@ -200,10 +223,13 @@ final class RouterTest extends TestCase
     #[Test]
     public function multipleGlobalMiddleware(): void
     {
-        $this->router->addMiddleware(DummyMiddleware::class, AnotherMiddleware::class);
-        $this->router->get('/test', static fn (): ResponseInterface => new Response(200, [], 'ok'));
+        $reg = new RouteRegistrar();
+        $reg->get('/test', static fn (): ResponseInterface => new Response(200, [], 'ok'));
 
-        $response = $this->router->handle(new ServerRequest('GET', '/test'));
+        $router = $this->buildRouter($reg);
+        $router->addMiddleware(DummyMiddleware::class, AnotherMiddleware::class);
+
+        $response = $router->handle(new ServerRequest('GET', '/test'));
 
         self::assertSame('applied', $response->getHeaderLine('X-Dummy-Middleware'));
         self::assertSame('applied', $response->getHeaderLine('X-Another-Middleware'));
@@ -217,15 +243,18 @@ final class RouterTest extends TestCase
         $cacheFile = sys_get_temp_dir() . '/waypoint_router_test_' . uniqid() . '.php';
 
         try {
-            $this->router->get('/cached', [TestController::class, 'index'], name: 'cached');
-            $this->router->compileTo($cacheFile);
+            $reg = new RouteRegistrar();
+            $reg->get('/cached', [TestController::class, 'index'], name: 'cached');
+
+            $compiler = new RouteCompiler();
+            $compiler->compile($reg->getRouteCollection(), $cacheFile);
 
             // New router instance loading from cache
-            $router2 = new Router($this->container);
             $this->container->set(TestController::class, new TestController());
-            $router2->loadCache($cacheFile);
+            $router = new Router($this->container);
+            $router->loadCache($cacheFile);
 
-            $response = $router2->handle(new ServerRequest('GET', '/cached'));
+            $response = $router->handle(new ServerRequest('GET', '/cached'));
 
             self::assertSame('index', (string) $response->getBody());
         } finally {
@@ -240,20 +269,24 @@ final class RouterTest extends TestCase
     #[Test]
     public function throws404ForUnknownRoute(): void
     {
-        $this->router->get('/home', static fn (): ResponseInterface => new Response(200));
+        $reg = new RouteRegistrar();
+        $reg->get('/home', static fn (): ResponseInterface => new Response(200));
 
         $this->expectException(RouteNotFoundException::class);
 
-        $this->router->handle(new ServerRequest('GET', '/nonexistent'));
+        $this->buildRouter($reg)->handle(new ServerRequest('GET', '/nonexistent'));
     }
 
     #[Test]
     public function throws405ForDisallowedMethod(): void
     {
-        $this->router->get('/resource', static fn (): ResponseInterface => new Response(200));
+        $reg = new RouteRegistrar();
+        $reg->get('/resource', static fn (): ResponseInterface => new Response(200));
+
+        $router = $this->buildRouter($reg);
 
         try {
-            $this->router->handle(new ServerRequest('POST', '/resource'));
+            $router->handle(new ServerRequest('POST', '/resource'));
             self::fail('Expected MethodNotAllowedException');
         } catch (MethodNotAllowedException $e) {
             self::assertSame(405, $e->getCode());
@@ -269,12 +302,13 @@ final class RouterTest extends TestCase
         $this->container->set(TestController::class, new TestController());
         $this->container->set(GroupedController::class, new GroupedController());
 
-        $this->router->scanDirectory(
+        $reg = new RouteRegistrar();
+        $reg->scanDirectory(
             __DIR__ . '/Fixture',
             'AsceticSoft\\Waypoint\\Tests\\Fixture',
         );
 
-        $response = $this->router->handle(new ServerRequest('GET', '/'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/'));
 
         self::assertSame('index', (string) $response->getBody());
     }
@@ -284,10 +318,12 @@ final class RouterTest extends TestCase
     #[Test]
     public function getRouteCollectionReturnsCollection(): void
     {
-        $this->router->get('/a', static fn (): ResponseInterface => new Response(200));
-        $this->router->get('/b', static fn (): ResponseInterface => new Response(200));
+        $reg = new RouteRegistrar();
+        $reg->get('/a', static fn (): ResponseInterface => new Response(200));
+        $reg->get('/b', static fn (): ResponseInterface => new Response(200));
 
-        $collection = $this->router->getRouteCollection();
+        $router = $this->buildRouter($reg);
+        $collection = $router->getRouteCollection();
         $all = $collection->all();
 
         self::assertCount(2, $all);
@@ -298,29 +334,12 @@ final class RouterTest extends TestCase
     #[Test]
     public function loadCacheThrowsForNonexistentFile(): void
     {
+        $router = new Router($this->container);
+
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('does not exist');
 
-        $this->router->loadCache('/nonexistent/path/routes.php');
-    }
-
-    #[Test]
-    public function loadCacheThrowsForInvalidFormat(): void
-    {
-        $cacheFile = sys_get_temp_dir() . '/waypoint_router_invalid_' . uniqid() . '.php';
-
-        try {
-            file_put_contents($cacheFile, '<?php return "invalid";');
-
-            $this->expectException(\RuntimeException::class);
-            $this->expectExceptionMessage('Invalid route cache format');
-
-            $this->router->loadCache($cacheFile);
-        } finally {
-            if (is_file($cacheFile)) {
-                unlink($cacheFile);
-            }
-        }
+        $router->loadCache('/nonexistent/path/routes.php');
     }
 
     #[Test]
@@ -345,9 +364,10 @@ final class RouterTest extends TestCase
             file_put_contents($cacheFile, '<?php return ' . var_export($legacyData, true) . ';');
 
             $this->container->set(TestController::class, new TestController());
-            $this->router->loadCache($cacheFile);
+            $router = new Router($this->container);
+            $router->loadCache($cacheFile);
 
-            $response = $this->router->handle(new ServerRequest('GET', '/legacy'));
+            $response = $router->handle(new ServerRequest('GET', '/legacy'));
             self::assertSame('index', (string) $response->getBody());
         } finally {
             if (is_file($cacheFile)) {
@@ -394,10 +414,10 @@ final class RouterTest extends TestCase
             file_put_contents($cacheFile, '<?php return ' . var_export($phase2Data, true) . ';');
 
             $this->container->set(TestController::class, new TestController());
-            $router2 = new Router($this->container);
-            $router2->loadCache($cacheFile);
+            $router = new Router($this->container);
+            $router->loadCache($cacheFile);
 
-            $response = $router2->handle(new ServerRequest('GET', '/p2'));
+            $response = $router->handle(new ServerRequest('GET', '/p2'));
             self::assertSame('index', (string) $response->getBody());
         } finally {
             if (is_file($cacheFile)) {
@@ -415,14 +435,16 @@ final class RouterTest extends TestCase
             $this->container->set(TestController::class, new TestController());
 
             // Compile first
-            $this->router->get('/p3', [TestController::class, 'index'], name: 'p3');
-            $this->router->compileTo($cacheFile);
+            $reg = new RouteRegistrar();
+            $reg->get('/p3', [TestController::class, 'index'], name: 'p3');
+            $compiler = new RouteCompiler();
+            $compiler->compile($reg->getRouteCollection(), $cacheFile);
 
             // Load from compiled cache (Phase 3)
-            $router2 = new Router($this->container);
-            $router2->loadCache($cacheFile);
+            $router = new Router($this->container);
+            $router->loadCache($cacheFile);
 
-            $response = $router2->handle(new ServerRequest('GET', '/p3'));
+            $response = $router->handle(new ServerRequest('GET', '/p3'));
             self::assertSame('index', (string) $response->getBody());
         } finally {
             if (is_file($cacheFile)) {
@@ -437,12 +459,16 @@ final class RouterTest extends TestCase
         $cacheFile = sys_get_temp_dir() . '/waypoint_router_url_' . uniqid() . '.php';
 
         try {
-            $this->router->get('/cached-url', [TestController::class, 'index'], name: 'cached.url');
-            $this->router->compileTo($cacheFile);
+            $reg = new RouteRegistrar();
+            $reg->get('/cached-url', [TestController::class, 'index'], name: 'cached.url');
 
-            $gen1 = $this->router->getUrlGenerator();
-            $this->router->loadCache($cacheFile);
-            $gen2 = $this->router->getUrlGenerator();
+            $compiler = new RouteCompiler();
+            $compiler->compile($reg->getRouteCollection(), $cacheFile);
+
+            $router = $this->buildRouter($reg);
+            $gen1 = $router->getUrlGenerator();
+            $router->loadCache($cacheFile);
+            $gen2 = $router->getUrlGenerator();
 
             self::assertNotSame($gen1, $gen2);
         } finally {
@@ -457,13 +483,14 @@ final class RouterTest extends TestCase
     #[Test]
     public function handleWithOnlyRouteMiddleware(): void
     {
-        $this->router->get(
+        $reg = new RouteRegistrar();
+        $reg->get(
             '/mw-only',
             static fn (): ResponseInterface => new Response(200, [], 'ok'),
             middleware: [DummyMiddleware::class],
         );
 
-        $response = $this->router->handle(new ServerRequest('GET', '/mw-only'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/mw-only'));
 
         self::assertSame('applied', $response->getHeaderLine('X-Dummy-Middleware'));
     }
@@ -471,14 +498,17 @@ final class RouterTest extends TestCase
     #[Test]
     public function handleWithBothGlobalAndRouteMiddleware(): void
     {
-        $this->router->addMiddleware(AnotherMiddleware::class);
-        $this->router->get(
+        $reg = new RouteRegistrar();
+        $reg->get(
             '/both-mw',
             static fn (): ResponseInterface => new Response(200, [], 'ok'),
             middleware: [DummyMiddleware::class],
         );
 
-        $response = $this->router->handle(new ServerRequest('GET', '/both-mw'));
+        $router = $this->buildRouter($reg);
+        $router->addMiddleware(AnotherMiddleware::class);
+
+        $response = $router->handle(new ServerRequest('GET', '/both-mw'));
 
         self::assertSame('applied', $response->getHeaderLine('X-Dummy-Middleware'));
         self::assertSame('applied', $response->getHeaderLine('X-Another-Middleware'));
@@ -487,9 +517,10 @@ final class RouterTest extends TestCase
     #[Test]
     public function handleWithNoMiddleware(): void
     {
-        $this->router->get('/no-mw', static fn (): ResponseInterface => new Response(200, [], 'no-mw'));
+        $reg = new RouteRegistrar();
+        $reg->get('/no-mw', static fn (): ResponseInterface => new Response(200, [], 'no-mw'));
 
-        $response = $this->router->handle(new ServerRequest('GET', '/no-mw'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/no-mw'));
 
         self::assertSame('no-mw', (string) $response->getBody());
     }
@@ -499,7 +530,8 @@ final class RouterTest extends TestCase
     #[Test]
     public function handleStoresRouteParametersInRequestAttributes(): void
     {
-        $this->router->get(
+        $reg = new RouteRegistrar();
+        $reg->get(
             '/params/{id:\d+}/{name}',
             static fn (ServerRequestInterface $request): ResponseInterface => new Response(
                 200,
@@ -508,7 +540,7 @@ final class RouterTest extends TestCase
             ),
         );
 
-        $response = $this->router->handle(new ServerRequest('GET', '/params/42/john'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('GET', '/params/42/john'));
 
         self::assertSame('42:john', (string) $response->getBody());
     }
@@ -523,13 +555,16 @@ final class RouterTest extends TestCase
         try {
             $this->container->set(TestController::class, new TestController());
 
-            $this->router->get('/show/{id:\d+}', [TestController::class, 'show'], name: 'show');
-            $this->router->compileTo($cacheFile);
+            $reg = new RouteRegistrar();
+            $reg->get('/show/{id:\d+}', [TestController::class, 'show'], name: 'show');
 
-            $router2 = new Router($this->container);
-            $router2->loadCache($cacheFile);
+            $compiler = new RouteCompiler();
+            $compiler->compile($reg->getRouteCollection(), $cacheFile);
 
-            $response = $router2->handle(new ServerRequest('GET', '/show/42'));
+            $router = new Router($this->container);
+            $router->loadCache($cacheFile);
+
+            $response = $router->handle(new ServerRequest('GET', '/show/42'));
 
             self::assertSame('show:42', (string) $response->getBody());
         } finally {
@@ -544,9 +579,10 @@ final class RouterTest extends TestCase
     #[Test]
     public function headRequestMatchesGetRoute(): void
     {
-        $this->router->get('/hello', static fn (): ResponseInterface => new Response(200, [], 'hello'));
+        $reg = new RouteRegistrar();
+        $reg->get('/hello', static fn (): ResponseInterface => new Response(200, [], 'hello'));
 
-        $response = $this->router->handle(new ServerRequest('HEAD', '/hello'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('HEAD', '/hello'));
 
         self::assertSame(200, $response->getStatusCode());
     }
@@ -554,12 +590,13 @@ final class RouterTest extends TestCase
     #[Test]
     public function headRequestMatchesDynamicGetRoute(): void
     {
-        $this->router->get(
+        $reg = new RouteRegistrar();
+        $reg->get(
             '/users/{id:\d+}',
             static fn (int $id): ResponseInterface => new Response(200, [], "user:$id"),
         );
 
-        $response = $this->router->handle(new ServerRequest('HEAD', '/users/42'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('HEAD', '/users/42'));
 
         self::assertSame(200, $response->getStatusCode());
     }
@@ -567,14 +604,15 @@ final class RouterTest extends TestCase
     #[Test]
     public function headRequestPrefersExplicitHeadRoute(): void
     {
-        $this->router->addRoute(
+        $reg = new RouteRegistrar();
+        $reg->addRoute(
             '/info',
             static fn (): ResponseInterface => new Response(204),
             ['HEAD'],
         );
-        $this->router->get('/info', static fn (): ResponseInterface => new Response(200, [], 'get-body'));
+        $reg->get('/info', static fn (): ResponseInterface => new Response(200, [], 'get-body'));
 
-        $response = $this->router->handle(new ServerRequest('HEAD', '/info'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('HEAD', '/info'));
 
         self::assertSame(204, $response->getStatusCode());
     }
@@ -582,10 +620,13 @@ final class RouterTest extends TestCase
     #[Test]
     public function headRequestThrows405WhenNoGetRouteExists(): void
     {
-        $this->router->post('/items', static fn (): ResponseInterface => new Response(201));
+        $reg = new RouteRegistrar();
+        $reg->post('/items', static fn (): ResponseInterface => new Response(201));
+
+        $router = $this->buildRouter($reg);
 
         try {
-            $this->router->handle(new ServerRequest('HEAD', '/items'));
+            $router->handle(new ServerRequest('HEAD', '/items'));
             self::fail('Expected MethodNotAllowedException');
         } catch (MethodNotAllowedException $e) {
             self::assertSame(405, $e->getCode());
@@ -596,7 +637,8 @@ final class RouterTest extends TestCase
     #[Test]
     public function headRequestPreservesOriginalMethodInRequest(): void
     {
-        $this->router->get(
+        $reg = new RouteRegistrar();
+        $reg->get(
             '/method-check',
             static fn (ServerRequestInterface $request): ResponseInterface => new Response(
                 200,
@@ -605,7 +647,7 @@ final class RouterTest extends TestCase
             ),
         );
 
-        $response = $this->router->handle(new ServerRequest('HEAD', '/method-check'));
+        $response = $this->buildRouter($reg)->handle(new ServerRequest('HEAD', '/method-check'));
 
         // The handler receives the original HEAD method, not the fallback GET
         self::assertSame('HEAD', (string) $response->getBody());
@@ -616,41 +658,66 @@ final class RouterTest extends TestCase
     #[Test]
     public function addRouteWithMultipleMethods(): void
     {
-        $this->router->addRoute(
+        $reg = new RouteRegistrar();
+        $reg->addRoute(
             '/multi',
             static fn (): ResponseInterface => new Response(200, [], 'multi'),
             ['GET', 'post'],
         );
 
-        $response = $this->router->handle(new ServerRequest('GET', '/multi'));
+        $router = $this->buildRouter($reg);
+
+        $response = $router->handle(new ServerRequest('GET', '/multi'));
         self::assertSame('multi', (string) $response->getBody());
 
-        $response = $this->router->handle(new ServerRequest('POST', '/multi'));
+        $response = $router->handle(new ServerRequest('POST', '/multi'));
         self::assertSame('multi', (string) $response->getBody());
     }
 
     #[Test]
     public function addRouteReturnsSelf(): void
     {
-        $result = $this->router->addRoute('/test', static fn (): ResponseInterface => new Response(200));
+        $reg = new RouteRegistrar();
 
-        self::assertSame($this->router, $result);
+        $result = $reg->addRoute('/test', static fn (): ResponseInterface => new Response(200));
+
+        self::assertSame($reg, $result);
     }
 
     #[Test]
     public function groupReturnsSelf(): void
     {
-        $result = $this->router->group('/prefix', static function (): void {
+        $reg = new RouteRegistrar();
+
+        $result = $reg->group('/prefix', static function (): void {
         });
 
-        self::assertSame($this->router, $result);
+        self::assertSame($reg, $result);
     }
 
     #[Test]
     public function addMiddlewareReturnsSelf(): void
     {
-        $result = $this->router->addMiddleware(DummyMiddleware::class);
+        $router = new Router($this->container);
 
-        self::assertSame($this->router, $result);
+        $result = $router->addMiddleware(DummyMiddleware::class);
+
+        self::assertSame($router, $result);
+    }
+
+    // ── Constructor with injected matcher ────────────────────────
+
+    #[Test]
+    public function constructorAcceptsPreBuiltMatcher(): void
+    {
+        $reg = new RouteRegistrar();
+        $reg->get('/injected', static fn (): ResponseInterface => new Response(200, [], 'injected'));
+
+        $matcher = new \AsceticSoft\Waypoint\TrieMatcher($reg->getRouteCollection());
+
+        $router = new Router($this->container, matcher: $matcher);
+
+        $response = $router->handle(new ServerRequest('GET', '/injected'));
+        self::assertSame('injected', (string) $response->getBody());
     }
 }

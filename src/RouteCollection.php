@@ -8,7 +8,7 @@ namespace AsceticSoft\Waypoint;
  * Stores routes and provides access by name or as a sorted list.
  *
  * Routes are sorted by priority (descending), then by registration order.
- * This class does NOT perform URI matching — use {@see UrlMatcher} for that.
+ * This class does NOT perform URI matching — use {@see TrieMatcher} or other matchers for that.
  */
 final class RouteCollection
 {

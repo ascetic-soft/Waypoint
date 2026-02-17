@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace AsceticSoft\Waypoint\Tests;
 
+use AsceticSoft\Waypoint\Cache\RouteCompiler;
 use AsceticSoft\Waypoint\Exception\BaseUrlNotSetException;
 use AsceticSoft\Waypoint\Exception\MissingParametersException;
 use AsceticSoft\Waypoint\Exception\RouteNameNotFoundException;
 use AsceticSoft\Waypoint\Route;
 use AsceticSoft\Waypoint\RouteCollection;
+use AsceticSoft\Waypoint\RouteRegistrar;
 use AsceticSoft\Waypoint\Router;
 use AsceticSoft\Waypoint\UrlGenerator;
 use AsceticSoft\Waypoint\Tests\Fixture\SimpleContainer;
@@ -227,26 +229,30 @@ final class UrlGeneratorTest extends TestCase
     // ── Router integration ──────────────────────────────────────
 
     #[Test]
-    public function routerGenerateShortcut(): void
+    public function routerUrlGeneratorGenerate(): void
     {
         $container = new SimpleContainer();
-        $router = new Router($container);
-        $router->get('/users/{id:\d+}', static fn (): ResponseInterface => throw new \LogicException(), name: 'users.show');
+        $reg = new RouteRegistrar();
+        $reg->get('/users/{id:\d+}', static fn (): ResponseInterface => throw new \LogicException(), name: 'users.show');
 
-        $url = $router->generate('users.show', ['id' => 42]);
+        $router = new Router($container, $reg->getRouteCollection());
+
+        $url = $router->getUrlGenerator()->generate('users.show', ['id' => 42]);
 
         self::assertSame('/users/42', $url);
     }
 
     #[Test]
-    public function routerGenerateAbsoluteUrl(): void
+    public function routerUrlGeneratorAbsoluteUrl(): void
     {
         $container = new SimpleContainer();
-        $router = new Router($container);
-        $router->setBaseUrl('https://example.com');
-        $router->get('/users/{id:\d+}', static fn (): ResponseInterface => throw new \LogicException(), name: 'users.show');
+        $reg = new RouteRegistrar();
+        $reg->get('/users/{id:\d+}', static fn (): ResponseInterface => throw new \LogicException(), name: 'users.show');
 
-        $url = $router->generate('users.show', ['id' => 42], absolute: true);
+        $router = new Router($container, $reg->getRouteCollection());
+        $router->setBaseUrl('https://example.com');
+
+        $url = $router->getUrlGenerator()->generate('users.show', ['id' => 42], absolute: true);
 
         self::assertSame('https://example.com/users/42', $url);
     }
@@ -255,8 +261,10 @@ final class UrlGeneratorTest extends TestCase
     public function routerSetBaseUrlResetsUrlGenerator(): void
     {
         $container = new SimpleContainer();
-        $router = new Router($container);
-        $router->get('/about', static fn (): ResponseInterface => throw new \LogicException(), name: 'about');
+        $reg = new RouteRegistrar();
+        $reg->get('/about', static fn (): ResponseInterface => throw new \LogicException(), name: 'about');
+
+        $router = new Router($container, $reg->getRouteCollection());
 
         $gen1 = $router->getUrlGenerator();
         $router->setBaseUrl('https://example.com');
@@ -287,15 +295,16 @@ final class UrlGeneratorTest extends TestCase
             $container->set(TestController::class, new TestController());
 
             // Build and compile
-            $router1 = new Router($container);
-            $router1->get('/users/{id:\d+}', [TestController::class, 'show'], name: 'users.show');
-            $router1->compileTo($cacheFile);
+            $reg = new RouteRegistrar();
+            $reg->get('/users/{id:\d+}', [TestController::class, 'show'], name: 'users.show');
+            $compiler = new RouteCompiler();
+            $compiler->compile($reg->getRouteCollection(), $cacheFile);
 
             // Load from cache and generate URL
-            $router2 = new Router($container);
-            $router2->loadCache($cacheFile);
+            $router = new Router($container);
+            $router->loadCache($cacheFile);
 
-            $url = $router2->generate('users.show', ['id' => 7]);
+            $url = $router->getUrlGenerator()->generate('users.show', ['id' => 7]);
 
             self::assertSame('/users/7', $url);
         } finally {

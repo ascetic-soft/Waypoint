@@ -5,24 +5,27 @@ declare(strict_types=1);
 namespace AsceticSoft\Waypoint\Tests;
 
 use AsceticSoft\Waypoint\Cache\RouteCompiler;
+use AsceticSoft\Waypoint\CompiledArrayMatcher;
+use AsceticSoft\Waypoint\CompiledClassMatcher;
 use AsceticSoft\Waypoint\Exception\MethodNotAllowedException;
 use AsceticSoft\Waypoint\Exception\RouteNotFoundException;
 use AsceticSoft\Waypoint\Route;
 use AsceticSoft\Waypoint\RouteCollection;
 use AsceticSoft\Waypoint\RouteMatchResult;
 use AsceticSoft\Waypoint\RouteTrie;
-use AsceticSoft\Waypoint\UrlMatcher;
+use AsceticSoft\Waypoint\TrieMatcher;
+use AsceticSoft\Waypoint\UrlMatcherInterface;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 final class UrlMatcherTest extends TestCase
 {
-    // ── Phase 1: runtime matching ───────────────────────────────
+    // ── Phase 1: runtime matching (TrieMatcher) ─────────────────
 
     #[Test]
     public function matchStaticRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/about', ['GET'], ['C', 'm']),
         );
 
@@ -36,7 +39,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function matchDynamicRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/users/{id:\d+}', ['GET'], ['C', 'm']),
         );
 
@@ -48,7 +51,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function matchIsCaseInsensitiveForMethod(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/test', ['POST'], ['C', 'm']),
         );
 
@@ -60,7 +63,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function throwsRouteNotFoundForNoMatch(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/about', ['GET'], ['C', 'm']),
         );
 
@@ -73,7 +76,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function throwsMethodNotAllowedWhenUriMatchesButMethodDoesNot(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/items', ['GET'], ['C', 'm']),
             new Route('/items', ['POST'], ['C', 'm']),
         );
@@ -91,7 +94,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function matchRespectsPriority(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/users/{name}', ['GET'], ['C', 'lowPriority'], priority: 0),
             new Route('/users/{id:\d+}', ['GET'], ['C', 'highPriority'], priority: 10),
         );
@@ -104,7 +107,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function matchPreservesInsertionOrderForEqualPriority(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/a', ['GET'], ['C', 'first'], name: 'first'),
             new Route('/a', ['GET'], ['C', 'second'], name: 'second'),
         );
@@ -117,7 +120,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function emptyCollectionThrowsNotFound(): void
     {
-        $matcher = new UrlMatcher(new RouteCollection());
+        $matcher = new TrieMatcher(new RouteCollection());
 
         $this->expectException(RouteNotFoundException::class);
 
@@ -129,7 +132,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function matchFallbackRouteWithNonTrieCompatiblePattern(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']),
         );
 
@@ -141,7 +144,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function throwsMethodNotAllowedForFallbackRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']),
         );
 
@@ -156,7 +159,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackRouteNotFoundThrows404(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']),
         );
 
@@ -170,7 +173,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function findByNameReturnsCorrectRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/users', ['GET'], ['C', 'm'], name: 'users.list'),
             new Route('/users/{id:\d+}', ['GET'], ['C', 'm'], name: 'users.show'),
         );
@@ -184,7 +187,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function findByNameReturnsNullForUnknownName(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/users', ['GET'], ['C', 'm'], name: 'users.list'),
         );
 
@@ -200,19 +203,19 @@ final class UrlMatcherTest extends TestCase
         $collection->add(new Route('/a', ['GET'], ['C', 'm']));
         $collection->add(new Route('/b', ['GET'], ['C', 'm']));
 
-        $matcher = new UrlMatcher($collection);
+        $matcher = new TrieMatcher($collection);
 
         self::assertSame($collection, $matcher->getRouteCollection());
         self::assertCount(2, $matcher->getRouteCollection()->all());
     }
 
-    // ── fromCompiledRaw (Phase 2) ─────────────────────────────────
+    // ── CompiledArrayMatcher (Phase 2) ──────────────────────────
 
     #[Test]
     public function fromCompiledRawMatchesStaticRoute(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('GET', '/about');
         self::assertSame('/about', $result->route->getPattern());
@@ -223,7 +226,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawMatchesViaStaticTable(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('GET', '/about');
         self::assertSame('/about', $result->route->getPattern());
@@ -233,7 +236,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawMatchesDynamicRoute(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('GET', '/users/42');
         self::assertSame(['id' => '42'], $result->parameters);
@@ -243,7 +246,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawThrowsRouteNotFound(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $this->expectException(RouteNotFoundException::class);
         $matcher->match('GET', '/nonexistent');
@@ -253,7 +256,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawThrowsMethodNotAllowed(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         try {
             $matcher->match('DELETE', '/about');
@@ -267,7 +270,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawFindByNameReturnsRoute(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $route = $matcher->findByName('about');
         self::assertNotNull($route);
@@ -278,7 +281,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawFindByNameReturnsNullForUnknown(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         self::assertNull($matcher->findByName('nonexistent'));
     }
@@ -287,7 +290,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawFindByNameIsLazyAndDoesNotHydrateAllRoutes(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $route = $matcher->findByName('about');
         self::assertNotNull($route);
@@ -303,7 +306,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawFindByNameCachesAcrossCalls(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $first = $matcher->findByName('about');
         $second = $matcher->findByName('about');
@@ -315,7 +318,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawGetRouteCollectionHydratesRoutes(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $all = $matcher->getRouteCollection()->all();
         self::assertCount(2, $all);
@@ -326,7 +329,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawFallbackRouteMatchesCorrectly(): void
     {
         $cacheData = $this->buildPhase2DataWithFallback();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('GET', '/files/prefix-hello.txt');
         self::assertSame(['name' => 'hello'], $result->parameters);
@@ -336,7 +339,7 @@ final class UrlMatcherTest extends TestCase
     public function fromCompiledRawFallbackRouteMethodNotAllowed(): void
     {
         $cacheData = $this->buildPhase2DataWithFallback();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         try {
             $matcher->match('POST', '/files/prefix-hello.txt');
@@ -346,7 +349,7 @@ final class UrlMatcherTest extends TestCase
         }
     }
 
-    // ── fromCompiledMatcher (Phase 3) ─────────────────────────────
+    // ── CompiledClassMatcher (Phase 3) ──────────────────────────
 
     #[Test]
     public function fromCompiledMatcherMatchesStaticRoute(): void
@@ -518,7 +521,7 @@ final class UrlMatcherTest extends TestCase
         $source->add(new Route('/files/suffix-{name}.doc', ['GET'], ['C', 'm'], name: 'suffix'));
 
         $cacheData = $this->buildPhase2DataFromCollection($source);
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('GET', '/files/suffix-hello.doc');
         self::assertSame(['name' => 'hello'], $result->parameters);
@@ -534,7 +537,7 @@ final class UrlMatcherTest extends TestCase
         $source->add(new Route('/users/{id:\d+}', ['PUT'], ['C', 'm'], name: 'users.update'));
 
         $cacheData = $this->buildPhase2DataFromCollection($source);
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         try {
             $matcher->match('DELETE', '/users/42');
@@ -550,7 +553,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackGroupingMatchesRoutesByFirstSegment(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'files'),
             new Route('/docs/page-{id}.html', ['GET'], ['C', 'm'], name: 'docs'),
         );
@@ -567,7 +570,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackGroupingDoesNotMatchWrongPrefix(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']),
         );
 
@@ -578,7 +581,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackGroupingCatchAllRouteMatchesAnyPrefix(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'm'], name: 'catchall'),
         );
 
@@ -592,7 +595,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackGroupingPreservesGlobalPriorityAcrossGroups(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/en/page-{id}.html', ['GET'], ['C', 'specific'], name: 'specific', priority: 0),
             new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 10),
         );
@@ -604,7 +607,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackGroupingPreservesGlobalPrioritySpecificWins(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/en/page-{id}.html', ['GET'], ['C', 'specific'], name: 'specific', priority: 10),
             new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 0),
         );
@@ -619,7 +622,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackGroupingMethodNotAllowedAcrossGroups(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/en/page-{id}.html', ['GET'], ['C', 'm'], name: 'specific'),
             new Route('/{lang}/page-{id}.html', ['POST'], ['C', 'm'], name: 'catchall'),
         );
@@ -641,7 +644,7 @@ final class UrlMatcherTest extends TestCase
         $source->add(new Route('/{lang}/page-{id}.html', ['GET'], ['C', 'catchall'], name: 'catchall', priority: 10));
 
         $cacheData = $this->buildPhase2DataFromCollection($source);
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('GET', '/en/page-42.html');
         self::assertSame('catchall', $result->route->getName());
@@ -681,7 +684,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function fallbackSkipsNonMatchingCandidateInSameGroup(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/suffix-{name}.doc', ['GET'], ['C', 'm'], name: 'suffix'),
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm'], name: 'prefix'),
         );
@@ -696,7 +699,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headMatchesStaticGetRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/about', ['GET'], ['C', 'm'], name: 'about'),
         );
 
@@ -709,7 +712,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headMatchesDynamicGetRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/users/{id:\d+}', ['GET'], ['C', 'm']),
         );
 
@@ -721,7 +724,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headMatchesFallbackGetRoute(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/files/prefix-{name}.txt', ['GET'], ['C', 'm']),
         );
 
@@ -733,7 +736,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headPrefersExplicitHeadRouteOverGetFallback(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/info', ['HEAD'], ['C', 'headHandler'], name: 'head'),
             new Route('/info', ['GET'], ['C', 'getHandler'], name: 'get'),
         );
@@ -746,7 +749,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headThrows405WhenOnlyPostRouteExists(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/items', ['POST'], ['C', 'm']),
         );
 
@@ -763,7 +766,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headThrows404WhenNoRouteMatches(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/about', ['GET'], ['C', 'm']),
         );
 
@@ -775,7 +778,7 @@ final class UrlMatcherTest extends TestCase
     #[Test]
     public function headIsCaseInsensitive(): void
     {
-        $matcher = $this->createMatcher(
+        $matcher = $this->createTrieMatcher(
             new Route('/test', ['GET'], ['C', 'm']),
         );
 
@@ -790,7 +793,7 @@ final class UrlMatcherTest extends TestCase
     public function headMatchesStaticGetRoutePhase2(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('HEAD', '/about');
 
@@ -801,7 +804,7 @@ final class UrlMatcherTest extends TestCase
     public function headMatchesDynamicGetRoutePhase2(): void
     {
         $cacheData = $this->buildPhase2Data();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('HEAD', '/users/42');
 
@@ -812,7 +815,7 @@ final class UrlMatcherTest extends TestCase
     public function headMatchesFallbackGetRoutePhase2(): void
     {
         $cacheData = $this->buildPhase2DataWithFallback();
-        $matcher = UrlMatcher::fromCompiledRaw($cacheData);
+        $matcher = new CompiledArrayMatcher($cacheData);
 
         $result = $matcher->match('HEAD', '/files/prefix-hello.txt');
 
@@ -910,16 +913,16 @@ final class UrlMatcherTest extends TestCase
     // ── Helpers ──────────────────────────────────────────────────
 
     /**
-     * Create a UrlMatcher from a list of routes (Phase 1).
+     * Create a TrieMatcher from a list of routes (Phase 1).
      */
-    private function createMatcher(Route ...$routes): UrlMatcher
+    private function createTrieMatcher(Route ...$routes): TrieMatcher
     {
         $collection = new RouteCollection();
         foreach ($routes as $route) {
             $collection->add($route);
         }
 
-        return new UrlMatcher($collection);
+        return new TrieMatcher($collection);
     }
 
     /**
@@ -997,9 +1000,9 @@ final class UrlMatcherTest extends TestCase
     }
 
     /**
-     * Build a Phase 3 matcher using RouteCompiler → CompiledMatcher.
+     * Build a Phase 3 matcher using RouteCompiler -> CompiledClassMatcher.
      */
-    private function buildPhase3Matcher(): UrlMatcher
+    private function buildPhase3Matcher(): UrlMatcherInterface
     {
         $source = new RouteCollection();
         $source->add(new Route('/about', ['GET'], ['C', 'm'], name: 'about'));
@@ -1008,7 +1011,7 @@ final class UrlMatcherTest extends TestCase
         return $this->compileAndLoadMatcher($source);
     }
 
-    private function compileAndLoadMatcher(RouteCollection $source): UrlMatcher
+    private function compileAndLoadMatcher(RouteCollection $source): UrlMatcherInterface
     {
         $cacheFile = sys_get_temp_dir() . '/waypoint_test_' . uniqid() . '.php';
 

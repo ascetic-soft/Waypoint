@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace AsceticSoft\Waypoint;
 
-use AsceticSoft\Waypoint\Cache\CompiledMatcherInterface;
 use AsceticSoft\Waypoint\Cache\RouteCompiler;
-use AsceticSoft\Waypoint\Loader\AttributeRouteLoader;
 use AsceticSoft\Waypoint\Middleware\MiddlewarePipeline;
 use AsceticSoft\Waypoint\Middleware\RouteHandler;
 use Psr\Container\ContainerInterface;
@@ -16,174 +14,30 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
 /**
- * Main router class implementing PSR-15 {@see RequestHandlerInterface}.
+ * PSR-15 request handler that dispatches to matched routes through a middleware pipeline.
  *
- * Provides a fluent API for manual route registration, attribute-based loading,
- * middleware management, route groups, and cache compilation.
+ * Route registration is handled by {@see RouteRegistrar}; this class is
+ * responsible only for matching, middleware execution, and dispatching.
  *
- * Route matching is delegated to a {@see UrlMatcherInterface} instance,
- * which can be used independently of PSR-7/PSR-15.
+ * Dependencies can be injected via constructor for testability and flexibility:
+ * - Pass a pre-built {@see RouteCollection} from a {@see RouteRegistrar}.
+ * - Pass a pre-built {@see UrlMatcherInterface} from {@see RouteCompiler::load()}.
  */
 final class Router implements RequestHandlerInterface
 {
-    private RouteCollection $routes;
-    private ?UrlMatcherInterface $matcher = null;
-    private ?AttributeRouteLoader $loader = null;
     private ?UrlGenerator $urlGenerator = null;
 
     /** @var list<string|MiddlewareInterface> Global middleware stack. */
     private array $globalMiddleware = [];
-
-    /** Current group prefix (used inside {@see group()} callback). */
-    private string $groupPrefix = '';
-
-    /** @var list<string> Current group middleware (used inside {@see group()} callback). */
-    private array $groupMiddleware = [];
 
     /** Base URL (scheme + host) used for absolute URL generation. */
     private string $baseUrl = '';
 
     public function __construct(
         private readonly ContainerInterface $container,
+        private RouteCollection $routes = new RouteCollection(),
+        private ?UrlMatcherInterface $matcher = null,
     ) {
-        $this->routes = new RouteCollection();
-    }
-
-    // ── Manual registration ──────────────────────────────────────
-
-    /**
-     * Register a route manually.
-     *
-     * @param string                                    $path       Route pattern.
-     * @param array{0:class-string,1:string}|\Closure   $handler    Controller reference or closure.
-     * @param list<string>                              $methods    HTTP methods.
-     * @param list<string>                              $middleware Middleware class-strings.
-     * @param string                                    $name       Route name.
-     * @param int                                       $priority   Match priority.
-     */
-    public function addRoute(
-        string $path,
-        array|\Closure $handler,
-        array $methods = ['GET'],
-        array $middleware = [],
-        string $name = '',
-        int $priority = 0,
-    ): self {
-        $fullPath = $this->buildPath($path);
-        $allMiddleware = array_merge($this->groupMiddleware, $middleware);
-
-        $this->routes->add(new Route(
-            pattern: $fullPath,
-            methods: array_map('strtoupper', $methods),
-            handler: $handler,
-            middleware: $allMiddleware,
-            name: $name,
-            priority: $priority,
-        ));
-
-        $this->invalidateMatcher();
-
-        return $this;
-    }
-
-    /**
-     * @param array{0:class-string,1:string}|\Closure $handler
-     * @param list<string>                             $middleware
-     */
-    public function get(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
-    {
-        return $this->addRoute($path, $handler, ['GET'], $middleware, $name, $priority);
-    }
-
-    /**
-     * @param array{0:class-string,1:string}|\Closure $handler
-     * @param list<string>                             $middleware
-     */
-    public function post(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
-    {
-        return $this->addRoute($path, $handler, ['POST'], $middleware, $name, $priority);
-    }
-
-    /**
-     * @param array{0:class-string,1:string}|\Closure $handler
-     * @param list<string>                             $middleware
-     */
-    public function put(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
-    {
-        return $this->addRoute($path, $handler, ['PUT'], $middleware, $name, $priority);
-    }
-
-    /**
-     * @param array{0:class-string,1:string}|\Closure $handler
-     * @param list<string>                             $middleware
-     */
-    public function delete(string $path, array|\Closure $handler, array $middleware = [], string $name = '', int $priority = 0): self
-    {
-        return $this->addRoute($path, $handler, ['DELETE'], $middleware, $name, $priority);
-    }
-
-    // ── Groups ───────────────────────────────────────────────────
-
-    /**
-     * Define a route group with a shared prefix and middleware.
-     *
-     * @param string   $prefix     URI prefix for all routes in the group.
-     * @param \Closure $callback   Callback that registers routes (receives $this).
-     * @param list<string> $middleware Middleware applied to all routes in the group.
-     */
-    public function group(string $prefix, \Closure $callback, array $middleware = []): self
-    {
-        $previousPrefix = $this->groupPrefix;
-        $previousMiddleware = $this->groupMiddleware;
-
-        $this->groupPrefix = $previousPrefix . '/' . ltrim($prefix, '/');
-        $this->groupMiddleware = array_merge($previousMiddleware, $middleware);
-
-        $callback($this);
-
-        $this->groupPrefix = $previousPrefix;
-        $this->groupMiddleware = $previousMiddleware;
-
-        return $this;
-    }
-
-    // ── Attribute loading ────────────────────────────────────────
-
-    /**
-     * Load routes from the given controller classes using `#[Route]` attributes.
-     *
-     * @param class-string ...$controllerClasses
-     */
-    public function loadAttributes(string ...$controllerClasses): self
-    {
-        foreach ($controllerClasses as $className) {
-            foreach ($this->getLoader()->loadFromClass($className) as $route) {
-                $this->routes->add($route);
-            }
-        }
-
-        $this->invalidateMatcher();
-
-        return $this;
-    }
-
-    /**
-     * Scan a directory for controller classes and load their `#[Route]` attributes.
-     *
-     * @param string $directory   Absolute path to the directory.
-     * @param string $namespace   PSR-4 namespace prefix for the directory.
-     * @param string $filePattern Glob pattern applied to filenames (e.g. '*Controller.php').
-     *                            Defaults to '*.php' (all PHP files).
-     */
-    public function scanDirectory(string $directory, string $namespace, string $filePattern = '*.php'): self
-    {
-        foreach ($this->getLoader()->loadFromDirectory($directory, $namespace, $filePattern) as $route) {
-            $this->routes->add($route);
-        }
-
-        $this->invalidateMatcher();
-
-        return $this;
     }
 
     // ── Global middleware ─────────────────────────────────────────
@@ -203,58 +57,16 @@ final class Router implements RequestHandlerInterface
     // ── Cache ────────────────────────────────────────────────────
 
     /**
-     * Compile the current route collection to a PHP cache file.
-     */
-    public function compileTo(string $cacheFilePath): void
-    {
-        $compiler = new RouteCompiler();
-        $compiler->compile($this->routes, $cacheFilePath);
-    }
-
-    /**
      * Load routes from a compiled cache file, replacing the current collection.
      *
-     * Supports three cache formats:
-     * 1. Compiled PHP matcher (named class) — Phase 3 format (fastest)
-     * 2. Array with trie — Phase 2 format
-     * 3. Flat route array — legacy format
-     *
-     * The RouteCompiler object is NOT instantiated — the cache is loaded
-     * directly via `include` to avoid unnecessary overhead.
+     * Delegates to {@see RouteCompiler::load()} which supports all cache formats
+     * (Phase 3 compiled matcher, Phase 2 array-with-trie, and legacy flat array).
      */
     public function loadCache(string $cacheFilePath): self
     {
-        if (!is_file($cacheFilePath)) {
-            throw new \RuntimeException(\sprintf(
-                'Route cache file "%s" does not exist.',
-                $cacheFilePath,
-            ));
-        }
-
-        $data = include $cacheFilePath;
-
-        if ($data instanceof CompiledMatcherInterface) {
-            // Phase 3: compiled PHP matcher (named class).
-            $this->matcher = UrlMatcher::fromCompiledMatcher($data);
-            $this->routes = new RouteCollection();
-        } elseif (\is_array($data) && isset($data['trie'])) {
-            // Phase 2: array with pre-built trie.
-            /** @var array{routes: list<array<string, mixed>>, trie: array<string, mixed>, fallback: list<int>, staticTable: array<string, int>} $data */
-            $this->matcher = UrlMatcher::fromCompiledRaw($data);
-            $this->routes = new RouteCollection();
-        } elseif (\is_array($data)) {
-            // Legacy: flat array of route data.
-            $collection = new RouteCollection();
-            foreach ($data as $item) {
-                /** @var array{path: string, methods: list<string>, handler: array{0:class-string,1:string}|\Closure, middleware: list<string>, name: string, compiledRegex: string, parameterNames: list<string>, priority?: int, argPlan?: list<array<string, mixed>>} $item */
-                $collection->add(Route::fromArray($item));
-            }
-            $this->routes = $collection;
-            $this->matcher = null;
-        } else {
-            throw new \RuntimeException(\sprintf('Invalid route cache format in "%s".', $cacheFilePath));
-        }
-
+        $compiler = new RouteCompiler();
+        $this->matcher = $compiler->load($cacheFilePath);
+        $this->routes = new RouteCollection();
         $this->urlGenerator = null;
 
         return $this;
@@ -330,19 +142,6 @@ final class Router implements RequestHandlerInterface
     }
 
     /**
-     * Generate a URL for the given named route.
-     *
-     * @param string                          $name       The route name.
-     * @param array<string,string|int|float>  $parameters Route parameter values keyed by name.
-     * @param array<string,mixed>             $query      Optional query-string parameters.
-     * @param bool                            $absolute   When true, prepend scheme and host.
-     */
-    public function generate(string $name, array $parameters = [], array $query = [], bool $absolute = false): string
-    {
-        return $this->getUrlGenerator()->generate($name, $parameters, $query, $absolute);
-    }
-
-    /**
      * Get the URL generator instance (lazily created).
      */
     public function getUrlGenerator(): UrlGenerator
@@ -360,7 +159,7 @@ final class Router implements RequestHandlerInterface
      */
     public function getRouteCollection(): RouteCollection
     {
-        if ($this->matcher instanceof UrlMatcher) {
+        if ($this->matcher instanceof AbstractUrlMatcher) {
             return $this->matcher->getRouteCollection();
         }
 
@@ -372,38 +171,6 @@ final class Router implements RequestHandlerInterface
      */
     public function getMatcher(): UrlMatcherInterface
     {
-        return $this->matcher ??= new UrlMatcher($this->routes);
-    }
-
-    // ── Private helpers ──────────────────────────────────────────
-
-    /**
-     * Lazily create the attribute route loader.
-     */
-    private function getLoader(): AttributeRouteLoader
-    {
-        return $this->loader ??= new AttributeRouteLoader();
-    }
-
-    private function buildPath(string $path): string
-    {
-        // Fast path: no group prefix — skip regex normalisation entirely.
-        if ($this->groupPrefix === '') {
-            return '/' . ltrim($path, '/');
-        }
-
-        $full = $this->groupPrefix . '/' . ltrim($path, '/');
-        $normalised = preg_replace('#/{2,}#', '/', $full) ?? $full;
-
-        return '/' . ltrim($normalised, '/');
-    }
-
-    /**
-     * Invalidate the cached matcher when routes change.
-     */
-    private function invalidateMatcher(): void
-    {
-        $this->matcher = null;
-        $this->urlGenerator = null;
+        return $this->matcher ??= new TrieMatcher($this->routes);
     }
 }
