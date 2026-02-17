@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace AsceticSoft\Waypoint\Cache;
 
 use AsceticSoft\Waypoint\Route;
-use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * Analyses controller method signatures and builds pre-computed argument plans.
@@ -16,6 +15,9 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class ArgumentPlanBuilder
 {
+    /** FQCN used to detect PSR-7 request parameters without a hard dependency on psr/http-message. */
+    private const PSR_REQUEST_INTERFACE = 'Psr\\Http\\Message\\ServerRequestInterface';
+
     /**
      * Build an argument resolution plan for the given route's handler.
      *
@@ -78,7 +80,7 @@ final class ArgumentPlanBuilder
         if (
             $type instanceof \ReflectionNamedType
             && !$type->isBuiltin()
-            && is_a($type->getName(), ServerRequestInterface::class, true)
+            && is_a($type->getName(), self::PSR_REQUEST_INTERFACE, true)
         ) {
             return ['source' => 'request'];
         }

@@ -15,17 +15,23 @@
     ],
     "require": {
         "php": ">=8.4",
-        "ext-mbstring": "*",
-        "psr/http-message": "^2.0",
-        "psr/http-server-handler": "^1.0",
-        "psr/http-server-middleware": "^1.0",
-        "psr/container": "^2.0"
+        "ext-mbstring": "*"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.94",
         "nyholm/psr7": "^1.8",
         "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^11.0"
+        "phpunit/phpunit": "^11.0",
+        "psr/container": "^2.0",
+        "psr/http-message": "^2.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-server-middleware": "^1.0"
+    },
+    "suggest": {
+        "psr/http-message": "Required for PSR-15 request handling (^2.0)",
+        "psr/http-server-handler": "Required for PSR-15 request handling (^1.0)",
+        "psr/http-server-middleware": "Required for PSR-15 middleware support (^1.0)",
+        "psr/container": "Required for PSR-11 container integration (^2.0)"
     },
     "autoload": {
         "psr-4": {

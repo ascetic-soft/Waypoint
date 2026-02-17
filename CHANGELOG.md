@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-17
+
+### Changed
+
+- **PSR dependencies are now optional** — `psr/http-message`, `psr/http-server-handler`, `psr/http-server-middleware`, and `psr/container` moved from `require` to `suggest`. The core matching engine (route registration, compilation, trie matching, URL generation, diagnostics) works as pure PHP without any PSR packages installed.
+- `ArgumentPlanBuilder` no longer imports `ServerRequestInterface` directly; uses a string constant for PSR-7 detection, making it resilient to missing `psr/http-message`.
+
 ## [1.1.5] - 2026-02-15
 
 ### Fixed
@@ -126,7 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive README with usage examples.
 - PHPUnit test suite covering core components.
 
-[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/ascetic-soft/Waypoint/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/ascetic-soft/Waypoint/compare/v1.1.2...v1.1.3
