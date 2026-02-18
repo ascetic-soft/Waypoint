@@ -12,6 +12,8 @@ A lightweight PSR-15 compatible PHP router with attribute-based routing, middlew
 
 **Documentation:** [English](https://ascetic-soft.github.io/Waypoint/) | [Русский](https://ascetic-soft.github.io/Waypoint/ru/)
 
+**Benchmarks:** [Waypoint Router Benchmark](https://github.com/ascetic-soft/WaypointBenchmark) — comparison against FastRoute, Symfony, Laravel, and other PHP routers
+
 ## Features
 
 - **Zero required dependencies** — the core matching engine (route registration, compilation, trie matching, URL generation, diagnostics) works as pure PHP; PSR packages are optional
